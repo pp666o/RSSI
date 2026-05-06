@@ -1,0 +1,6 @@
+s,timestamp,beacon_1_mean,beacon_1_std,beacon_2_mean,beacon_2_std,beacon_3_mean,beacon_3_std,beacon_4_mean,beacon_4_std,beacon_5_mean,beacon_5_std,beacon_6_mean,beacon_6_std,beacon_7_mean,beacon_7_std,beacon_8_mean,beacon_8_std,beacon_9_mean,beacon_9_std,beacon_10_mean,beacon_10_std
+0,100,-46,2,-54,2,-67,3,-74,3,-81,4,-87,4,-90,5,-92,5,-94,5,-96,5
+5,101,-48,2,-52,2,-63,3,-71,3,-78,4,-85,4,-89,5,-91,5,-93,5,-95,5
+10,102,-53,2,-50,2,-61,3,-69,3,-75,4,-83,4,-87,5,-89,5,-92,5,-94,5
+15,103,-64,2,-52,2,-53,3,-59,3,-67,4,-77,4,-84,5,-86,5,-88,5,-90,5
+20,104,-65,2,-53,2,-52,3,-58,3,-68,4,-78,4,-84,5,-86,5,-88,5,-90,5
