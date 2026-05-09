@@ -1,0 +1,10 @@
+{
+  "folders": [
+    {
+      "path": "workspaces/robot_rssi"
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder}/../../.venv/Scripts/python.exe"
+  }
+}
