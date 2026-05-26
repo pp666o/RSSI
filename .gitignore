@@ -1,0 +1,25 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local build outputs
+code/build_rssi/
+code/unitree_sdk2/build/
+code/unitree_sdk2/build_go2/
+
+# Large local reference/material bundles kept out of normal Git history.
+code/paper/
+code/unitree_sdk2/
+
+# Migration payload: keep only portable scripts and small RSSI binaries.
+code/bt_migrate_pack/*
+!code/bt_migrate_pack/go2_attach_ttyacm.sh
+!code/bt_migrate_pack/go2_run_rssi.sh
+!code/bt_migrate_pack/start_coded_scan.sh
+!code/bt_migrate_pack/test_rssi
+!code/bt_migrate_pack/test_rssi_auto
+!code/bt_migrate_pack/test_rssi_manual
+
+# Collection outputs
+go2_rssi_runs/
+code/go2_rssi_runs/

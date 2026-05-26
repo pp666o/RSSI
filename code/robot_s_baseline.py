@@ -82,6 +82,85 @@ def load_csvs(files: list[Path], missing_marker: float, missing_rssi: float) -> 
     return data
 
 
+def load_imu_csv(path: str | None) -> pd.DataFrame | None:
+    if not path:
+        return None
+
+    imu = pd.read_csv(Path(path)).copy()
+    if "elapsed_sec" not in imu.columns:
+        raise ValueError("IMU CSV must contain elapsed_sec.")
+
+    imu["elapsed_sec"] = pd.to_numeric(imu["elapsed_sec"], errors="coerce")
+    required = [
+        "acc_x_g",
+        "acc_y_g",
+        "acc_z_g",
+        "gyro_x_dps",
+        "gyro_y_dps",
+        "gyro_z_dps",
+    ]
+    missing = [col for col in required if col not in imu.columns]
+    if missing:
+        raise ValueError(f"IMU CSV is missing required columns: {missing}")
+
+    for col in required:
+        imu[col] = pd.to_numeric(imu[col], errors="coerce")
+    imu = imu.dropna(subset=["elapsed_sec", *required]).sort_values("elapsed_sec")
+    imu["acc_norm"] = np.sqrt(np.square(imu[["acc_x_g", "acc_y_g", "acc_z_g"]]).sum(axis=1))
+    imu["acc_dynamic"] = np.abs(imu["acc_norm"] - 1.0)
+    imu["gyro_norm"] = np.sqrt(np.square(imu[["gyro_x_dps", "gyro_y_dps", "gyro_z_dps"]]).sum(axis=1))
+    return imu
+
+
+def attach_imu_features(
+    data: pd.DataFrame,
+    imu: pd.DataFrame | None,
+    window_sec: float,
+    static_acc_threshold: float,
+    static_gyro_threshold: float,
+) -> pd.DataFrame:
+    data = data.copy()
+    if imu is None or "elapsed_sec" not in data.columns:
+        data["imu_acc_dynamic_mean"] = np.nan
+        data["imu_gyro_norm_mean"] = np.nan
+        data["imu_motion_score"] = np.nan
+        data["imu_is_static"] = False
+        return data
+
+    half_window = max(window_sec, 1e-6) / 2.0
+    elapsed = pd.to_numeric(data["elapsed_sec"], errors="coerce").to_numpy(dtype=float)
+    imu_elapsed = imu["elapsed_sec"].to_numpy(dtype=float)
+    acc_dynamic = imu["acc_dynamic"].to_numpy(dtype=float)
+    gyro_norm = imu["gyro_norm"].to_numpy(dtype=float)
+
+    acc_means: list[float] = []
+    gyro_means: list[float] = []
+    for t in elapsed:
+        if not np.isfinite(t):
+            acc_means.append(np.nan)
+            gyro_means.append(np.nan)
+            continue
+        start = np.searchsorted(imu_elapsed, t - half_window, side="left")
+        end = np.searchsorted(imu_elapsed, t + half_window, side="right")
+        if end <= start:
+            acc_means.append(np.nan)
+            gyro_means.append(np.nan)
+            continue
+        acc_means.append(float(np.nanmean(acc_dynamic[start:end])))
+        gyro_means.append(float(np.nanmean(gyro_norm[start:end])))
+
+    data["imu_acc_dynamic_mean"] = acc_means
+    data["imu_gyro_norm_mean"] = gyro_means
+    acc_score = data["imu_acc_dynamic_mean"] / max(static_acc_threshold, 1e-9)
+    gyro_score = data["imu_gyro_norm_mean"] / max(static_gyro_threshold, 1e-9)
+    data["imu_motion_score"] = np.clip(np.maximum(acc_score, gyro_score), 0.0, 1.0)
+    data["imu_is_static"] = (
+        (data["imu_acc_dynamic_mean"] < static_acc_threshold)
+        & (data["imu_gyro_norm_mean"] < static_gyro_threshold)
+    )
+    return data
+
+
 def build_fingerprint_map(
     train: pd.DataFrame,
     beacon_ids: list[str],
@@ -227,6 +306,17 @@ def compute_confidence(
     )
 
 
+def estimate_imu_delta_s(row: pd.Series, expected_step_s: float) -> float:
+    if "imu_delta_s" in row and pd.notna(row["imu_delta_s"]):
+        return float(row["imu_delta_s"])
+
+    motion_score = float(row.get("imu_motion_score", np.nan))
+    if np.isfinite(motion_score):
+        return float(expected_step_s * np.clip(motion_score, 0.0, 1.0))
+
+    return float(expected_step_s)
+
+
 def predict_s(
     test: pd.DataFrame,
     fingerprint_map: pd.DataFrame,
@@ -251,6 +341,11 @@ def predict_s(
     kalman_measurement_var: float,
     max_jump_s: float | None,
     smooth_alpha: float | None,
+    imu_motion_gate: bool,
+    imu_static_alpha: float,
+    imu_dynamic_alpha: float,
+    imu_static_max_jump_s: float,
+    imu_dynamic_max_jump_s: float,
 ) -> pd.DataFrame:
     raw_means = fingerprint_map[[f"mean__{beacon}" for beacon in beacon_ids]].to_numpy(dtype=float)
     means = transform_rssi(raw_means, rssi_representation, missing_rssi, strong_rssi)
@@ -279,8 +374,16 @@ def predict_s(
         obs_mask = row[[f"{beacon}_observed" for beacon in beacon_ids]].to_numpy(dtype=bool)
         obs_strength = make_strength(raw_obs, missing_rssi, strong_rssi)
         candidates = np.arange(len(fingerprint_map))
-        if max_jump_s is not None and prev_s is not None:
-            constrained = np.flatnonzero(np.abs(states[:, 1] - prev_s) <= max_jump_s)
+        imu_motion_score = float(row.get("imu_motion_score", np.nan))
+        imu_is_static = bool(row.get("imu_is_static", False))
+        effective_max_jump_s = max_jump_s
+        if imu_motion_gate and prev_s is not None and np.isfinite(imu_motion_score):
+            effective_max_jump_s = float(
+                imu_static_max_jump_s
+                + imu_motion_score * (imu_dynamic_max_jump_s - imu_static_max_jump_s)
+            )
+        if effective_max_jump_s is not None and prev_s is not None:
+            constrained = np.flatnonzero(np.abs(states[:, 1] - prev_s) <= effective_max_jump_s)
             if len(constrained) > 0:
                 candidates = constrained
 
@@ -317,11 +420,19 @@ def predict_s(
                 "s_pred_raw": raw_pred_s,
                 "s_pred_measurement": pred_s,
                 "s_pred": pred_s,
+                "ekf_imu_delta_s": np.nan,
+                "ekf_state_s": np.nan,
+                "ekf_state_v": np.nan,
             }
             if "timestamp" in test.columns:
                 out["timestamp"] = row["timestamp"]
             if "s" in test.columns:
                 out["s"] = row["s"]
+            out["imu_acc_dynamic_mean"] = float(row.get("imu_acc_dynamic_mean", np.nan))
+            out["imu_gyro_norm_mean"] = float(row.get("imu_gyro_norm_mean", np.nan))
+            out["imu_motion_score"] = float(row.get("imu_motion_score", np.nan))
+            out["imu_is_static"] = bool(row.get("imu_is_static", False))
+            out["effective_max_jump_s"] = float(effective_max_jump_s) if effective_max_jump_s is not None else np.nan
             rows.append(out)
             prev_s = pred_s
             continue
@@ -369,10 +480,19 @@ def predict_s(
         if confidence_blend and prev_s is not None:
             expected_s = prev_s + expected_step_s
             pred_s = float(confidence * pred_s + (1.0 - confidence) * expected_s)
+        if imu_motion_gate and prev_s is not None and np.isfinite(imu_motion_score):
+            imu_alpha = float(
+                imu_static_alpha + imu_motion_score * (imu_dynamic_alpha - imu_static_alpha)
+            )
+            imu_alpha = float(np.clip(imu_alpha, 0.0, 1.0))
+            pred_s = float(imu_alpha * pred_s + (1.0 - imu_alpha) * prev_s)
         if smooth_alpha is not None and prev_s is not None:
             pred_s = float(smooth_alpha * pred_s + (1.0 - smooth_alpha) * prev_s)
         measurement_s = pred_s
 
+        ekf_imu_delta_s = np.nan
+        ekf_state_s = np.nan
+        ekf_state_v = np.nan
         if post_filter == "sliding_mean":
             filter_history.append(measurement_s)
             filter_history = filter_history[-max(filter_window, 1) :]
@@ -404,6 +524,31 @@ def predict_s(
                 kalman_x = kalman_x + (gain @ innovation)
                 kalman_p = (np.eye(2, dtype=float) - gain @ measurement_matrix) @ kalman_p
             pred_s = float(kalman_x[0])
+        elif post_filter == "ekf":
+            imu_delta_s = estimate_imu_delta_s(row, expected_step_s)
+            ekf_imu_delta_s = imu_delta_s
+            if kalman_x is None or kalman_p is None:
+                kalman_x = np.array([measurement_s, imu_delta_s], dtype=float)
+                kalman_p = np.diag([kalman_measurement_var, max(kalman_process_var, 1e-9)])
+            else:
+                predicted_s = kalman_x[0] + imu_delta_s
+                predicted_v = 0.7 * kalman_x[1] + 0.3 * imu_delta_s
+                kalman_x_pred = np.array([predicted_s, predicted_v], dtype=float)
+                transition_jacobian = np.array([[1.0, 0.0], [0.0, 0.7]], dtype=float)
+                control_jacobian = np.array([[1.0], [0.3]], dtype=float)
+                process = kalman_process_var * (control_jacobian @ control_jacobian.T)
+                kalman_p_pred = transition_jacobian @ kalman_p @ transition_jacobian.T + process
+
+                measurement_matrix = np.array([[1.0, 0.0]], dtype=float)
+                measurement_var = kalman_measurement_var / max(confidence, 0.05)
+                innovation = np.array([measurement_s], dtype=float) - measurement_matrix @ kalman_x_pred
+                innovation_cov = measurement_matrix @ kalman_p_pred @ measurement_matrix.T + measurement_var
+                gain = kalman_p_pred @ measurement_matrix.T / innovation_cov[0, 0]
+                kalman_x = kalman_x_pred + (gain @ innovation)
+                kalman_p = (np.eye(2, dtype=float) - gain @ measurement_matrix) @ kalman_p_pred
+            pred_s = float(kalman_x[0])
+            ekf_state_s = float(kalman_x[0])
+            ekf_state_v = float(kalman_x[1])
 
         prev_s = pred_s
 
@@ -424,6 +569,14 @@ def predict_s(
             "s_pred_raw": raw_pred_s,
             "s_pred_measurement": measurement_s,
             "s_pred": pred_s,
+            "ekf_imu_delta_s": ekf_imu_delta_s,
+            "ekf_state_s": ekf_state_s,
+            "ekf_state_v": ekf_state_v,
+            "imu_acc_dynamic_mean": float(row.get("imu_acc_dynamic_mean", np.nan)),
+            "imu_gyro_norm_mean": float(row.get("imu_gyro_norm_mean", np.nan)),
+            "imu_motion_score": imu_motion_score,
+            "imu_is_static": imu_is_static,
+            "effective_max_jump_s": float(effective_max_jump_s) if effective_max_jump_s is not None else np.nan,
         }
         if "timestamp" in test.columns:
             out["timestamp"] = row["timestamp"]
@@ -487,10 +640,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--confidence-distance-scale", type=float, default=10.0, help="Distance scale used by the confidence score.")
     parser.add_argument("--confidence-spread-scale", type=float, default=10.0, help="Top-K s-spread scale used by the confidence score.")
     parser.add_argument("--confidence-blend", action="store_true", help="Blend low-confidence RSSI predictions toward the motion prior.")
-    parser.add_argument("--post-filter", choices=["none", "sliding_mean", "sliding_median", "kalman"], default="none", help="Post-matching trajectory filter.")
+    parser.add_argument("--post-filter", choices=["none", "sliding_mean", "sliding_median", "kalman", "ekf"], default="none", help="Post-matching trajectory filter.")
     parser.add_argument("--filter-window", type=int, default=5, help="Window size for sliding mean/median filters.")
     parser.add_argument("--kalman-process-var", type=float, default=0.05, help="Process noise variance for the 1D constant-velocity Kalman filter.")
     parser.add_argument("--kalman-measurement-var", type=float, default=4.0, help="Base measurement noise variance for the Kalman filter.")
+    parser.add_argument("--imu", default="", help="Optional IMU CSV from test_rssi.cpp, aligned to test rows by elapsed_sec.")
+    parser.add_argument("--imu-window-sec", type=float, default=1.0, help="Time window used to aggregate IMU features around each RSSI row.")
+    parser.add_argument("--imu-motion-gate", action="store_true", help="Use IMU motion score as an auxiliary constraint for RSSI s predictions.")
+    parser.add_argument("--imu-static-acc-threshold", type=float, default=0.04, help="acc_dynamic below this threshold is treated as static evidence.")
+    parser.add_argument("--imu-static-gyro-threshold", type=float, default=3.0, help="gyro_norm below this threshold is treated as static evidence.")
+    parser.add_argument("--imu-static-alpha", type=float, default=0.15, help="RSSI blend weight when IMU indicates static/low motion.")
+    parser.add_argument("--imu-dynamic-alpha", type=float, default=0.75, help="RSSI blend weight when IMU indicates clear motion.")
+    parser.add_argument("--imu-static-max-jump-s", type=float, default=0.5, help="Max s jump allowed when IMU indicates static/low motion.")
+    parser.add_argument("--imu-dynamic-max-jump-s", type=float, default=3.0, help="Max s jump allowed when IMU indicates clear motion.")
     parser.add_argument("--no-mask", action="store_true", help="Disable explicit observed-mask handling and compare every beacon.")
     return parser.parse_args()
 
@@ -501,6 +663,14 @@ def main() -> None:
     test_files = expand_inputs(args.test)
     train = load_csvs(train_files, args.missing_marker, args.missing_rssi)
     test = load_csvs(test_files, args.missing_marker, args.missing_rssi)
+    imu = load_imu_csv(args.imu)
+    test = attach_imu_features(
+        test,
+        imu,
+        window_sec=args.imu_window_sec,
+        static_acc_threshold=args.imu_static_acc_threshold,
+        static_gyro_threshold=args.imu_static_gyro_threshold,
+    )
 
     beacon_ids = infer_beacon_ids(train.columns)
     test_beacon_ids = infer_beacon_ids(test.columns)
@@ -535,6 +705,11 @@ def main() -> None:
         kalman_measurement_var=args.kalman_measurement_var,
         max_jump_s=args.max_jump_s if args.max_jump_s > 0 else None,
         smooth_alpha=args.smooth_alpha if args.smooth_alpha > 0 else None,
+        imu_motion_gate=args.imu_motion_gate,
+        imu_static_alpha=args.imu_static_alpha,
+        imu_dynamic_alpha=args.imu_dynamic_alpha,
+        imu_static_max_jump_s=args.imu_static_max_jump_s,
+        imu_dynamic_max_jump_s=args.imu_dynamic_max_jump_s,
     )
 
     out_path = Path(args.out)
@@ -551,6 +726,9 @@ def main() -> None:
     print(f"train files: {len(train_files)}")
     print(f"test files: {len(test_files)}")
     print(f"beacons: {len(beacon_ids)}")
+    if imu is not None:
+        print(f"imu rows: {len(imu)}")
+        print(f"imu motion gate: {args.imu_motion_gate}")
     print(f"fingerprint states: {len(fingerprint_map)}")
     print(f"predictions: {out_path}")
     print(f"fingerprint map: {map_path}")
