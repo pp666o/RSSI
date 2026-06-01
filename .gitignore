@@ -10,6 +10,7 @@ code/unitree_sdk2/build_go2/
 # Large local reference/material bundles kept out of normal Git history.
 code/paper/
 code/unitree_sdk2/
+code/unitree_sdk/
 
 # Migration payload: keep only portable scripts and small RSSI binaries.
 code/bt_migrate_pack/*
