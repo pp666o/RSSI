@@ -1,13 +1,45 @@
-# Go2 Phase A: Odom-Controlled Straight-Line RSSI Collection
+# Go2 Phase A: Cumulative-Odom Straight-Line RSSI Collection
 
 目标：先不上 RSSI 闭环控制，让 Go2 沿直线连续行走，同时采集 RSSI、Go2 IMU 和 Go2 sport state。路径距离以 Go2 `rt/sportmodestate` 中的位置估计为准，代码里记录为 `odom_s_m`；速度积分 `cmd_s_m` 只用于复盘，不作为真实标签。
+## 代码同步
+```bash
+cd /home/luping/桌面/RSSI/RSSI/code
 
+scp unitree_sdk2/example/go2/go2_straight_line_runner.cpp \
+  unitree@192.168.123.18:/home/unitree/rssi_go2/unitree_sdk2/example/go2/go2_straight_line_runner.cpp
+
+scp scripts/go2_collect_straight_line_phase_a.sh \
+  unitree@192.168.123.18:/home/unitree/rssi_go2/scripts/go2_collect_straight_line_phase_a.sh
+
+scp GO2_PHASE_A_STRAIGHT_LINE.md \
+  unitree@192.168.123.18:/home/unitree/rssi_go2/GO2_PHASE_A_STRAIGHT_LINE.md
+```
+- Go2上重新编译
+```bash
+cd ~/rssi_go2
+touch unitree_sdk2/example/go2/go2_straight_line_runner.cpp
+cmake -S unitree_sdk2 -B unitree_sdk2/build_go2
+cmake --build unitree_sdk2/build_go2 --target go2_straight_line_runner -j"$(nproc)"
+```
+- 验证
+```bash
+RUN_DIR="$HOME/go2_rssi_runs/test_1m_v030_hold" MAX_RUNTIME_SEC=60 \
+scripts/go2_collect_straight_line_phase_a.sh eth0 1.0 0.30 1.0 0.5
+```
+- 删除文件
+```bash
+rm -rf ~/go2_rssi_runs/*
+```
 ## 1. 当前策略
 
 - 不停下来采集 RSSI，不人工按 Enter 标记距离。
 - 输入的 `distance_m` 是目标真实路径距离，runner 会在 `odom_s_m >= distance_m` 时停止；到达目标后脚本会立即停止后台 RSSI/IMU 采集并退出，不再等到 `MAX_RUNTIME_SEC`。
 - `MAX_RUNTIME_SEC` 只是安全超时，防止异常情况下无限走，不应该用“输入更大的距离”凑真实距离。
 - 已验证 `0.30 m/s` 比 `0.05-0.20 m/s` 更适合作为当前 baseline；低速命令可能让 Go2 实际只移动几厘米。
+- 运动命令默认走 Unitree 官方 `obstacles_avoid` client。脚本会设置 `USE_OBSTACLE_AVOID=1`，runner 会调用 `UseRemoteCommandFromApi(true)`、`SwitchSet(true)`。
+- 默认运动模式是 `MOVE_MODE=increment`，即调用官方 `ObstaclesAvoidClient::MoveToIncrementPosition(remaining_distance, 0, 0)`。默认 `INCREMENT_STEP_M=0`，表示不做固定 0.5 m 分段；代码不再手写 yaw/vy 纠偏，也不手写避障逻辑。
+- 如果需要回退到旧速度命令，可以设置 `MOVE_MODE=velocity`，即官方 `Move(vx, 0, 0)`。
+- `odom_s_m` 是运动开始后 Go2 `position()[x,y]` 增量累计得到的二维路径长度，不再是投影到初始 yaw 的距离。这样避障绕行、横向偏移或 position/yaw 坐标系不完全一致时，也能按实际累计行走距离停止。
 - RSSI 建库时先连续采集，后处理时按时间把每条 RSSI window 对齐到同一时刻的 `odom_s_m`，再按 0.5 m 或 1.0 m 分桶。
 
 ## 2. 场地和信标
@@ -22,11 +54,22 @@
 
 ## 3. 同步和构建
 
-从控制电脑同步到 Go2，不要同步整个项目目录：
+从控制电脑同步到 Go2，不要同步整个项目目录。因为 Go2 系统时间经常不准，`rsync` 可能根据时间戳误判“不需要覆盖”。当前建议直接强制 `scp` 关键文件：
 
 ```bash
 cd /home/luping/桌面/RSSI/RSSI/code
-scripts/sync_go2_phase_a.sh unitree@192.168.123.18 /home/unitree/rssi_go2
+
+scp go2_sdk/go2_straight_line_runner.cpp \
+  unitree@192.168.123.18:/home/unitree/rssi_go2/unitree_sdk2/example/go2/go2_straight_line_runner.cpp
+
+scp go2_sdk/go2_imu_logger.cpp \
+  unitree@192.168.123.18:/home/unitree/rssi_go2/unitree_sdk2/example/go2/go2_imu_logger.cpp
+
+scp scripts/go2_collect_straight_line_phase_a.sh \
+  unitree@192.168.123.18:/home/unitree/rssi_go2/scripts/go2_collect_straight_line_phase_a.sh
+
+scp GO2_PHASE_A_STRAIGHT_LINE.md \
+  unitree@192.168.123.18:/home/unitree/rssi_go2/GO2_PHASE_A_STRAIGHT_LINE.md
 ```
 
 在 Go2 上构建：
@@ -34,10 +77,8 @@ scripts/sync_go2_phase_a.sh unitree@192.168.123.18 /home/unitree/rssi_go2
 ```bash
 cd ~/rssi_go2
 
-# 如果 ~/rssi_go2/unitree_sdk2 还不存在，先准备一次完整 SDK：
-# git clone https://github.com/unitreerobotics/unitree_sdk2.git unitree_sdk2
-
 cmake -S unitree_sdk2 -B unitree_sdk2/build_go2
+touch unitree_sdk2/example/go2/go2_straight_line_runner.cpp
 cmake --build unitree_sdk2/build_go2 --target go2_imu_logger go2_straight_line_runner -j"$(nproc)"
 
 scripts/build_rssi_logger.sh
@@ -48,13 +89,28 @@ scripts/build_rssi_logger.sh
 - 自动把 `unitree_sdk2/thirdparty/lib/aarch64` 放到 `LD_LIBRARY_PATH` 前面，避免错误加载 `/usr/local/lib` 中的 CycloneDDS。
 - 自动运行 `bt_migrate_pack/go2_attach_ttyacm.sh` attach 蓝牙控制器。只有你已经手动 attach 过 HCI 时，才需要加 `BT_ATTACH=0 HCI_DEV=hci0`。
 
-确认 runner 是新版：
+确认 Go2 上源码是新版：
 
 ```bash
-strings unitree_sdk2/build_go2/bin/go2_straight_line_runner | grep -E "Stop source|Max move runtime|odom-controlled"
+grep -n "ObstaclesAvoid" unitree_sdk2/example/go2/go2_straight_line_runner.cpp
+grep -n "ResetPathAccumulator" unitree_sdk2/example/go2/go2_straight_line_runner.cpp
+grep -n "MoveToIncrementPosition" unitree_sdk2/example/go2/go2_straight_line_runner.cpp
+grep -n "USE_OBSTACLE_AVOID" scripts/go2_collect_straight_line_phase_a.sh
+grep -n "MOVE_MODE" scripts/go2_collect_straight_line_phase_a.sh
+grep -n "exec sudo" scripts/go2_collect_straight_line_phase_a.sh
 ```
 
-应该能看到 `odom-controlled`、`Stop source` 或 `Max move runtime`。
+确认 runner 二进制是新版：
+
+```bash
+strings unitree_sdk2/build_go2/bin/go2_straight_line_runner | grep -E "Stop source|Max move runtime|obstacles_avoid|use_obstacle_avoid|increment_position"
+```
+
+直接运行一次不带参数也可以检查 Usage。新版 Usage 必须包含 `[motion_mode] [increment_step_m]`：
+
+```bash
+./unitree_sdk2/build_go2/bin/go2_straight_line_runner
+```
 
 ## 4. 逐级实机测试
 
@@ -62,6 +118,27 @@ strings unitree_sdk2/build_go2/bin/go2_straight_line_runner | grep -E "Stop sour
 
 ```bash
 RUN_DIR="$HOME/go2_rssi_runs/test_1m_v030" MAX_RUNTIME_SEC=60 \
+scripts/go2_collect_straight_line_phase_a.sh eth0 1.0 0.30 1.0 0.5
+```
+
+默认启用官方避障。如果只做受控调试、确认环境完全安全，可以临时关闭避障通道，回到旧的 sport move：
+
+```bash
+USE_OBSTACLE_AVOID=0 RUN_DIR="$HOME/go2_rssi_runs/debug_no_avoid" MAX_RUNTIME_SEC=60 \
+scripts/go2_collect_straight_line_phase_a.sh eth0 1.0 0.30 1.0 0.5
+```
+
+默认使用官方增量位姿模式，不做固定分段。可以显式写出参数：
+
+```bash
+MOVE_MODE=increment INCREMENT_STEP_M=0 RUN_DIR="$HOME/go2_rssi_runs/test_1m_increment" MAX_RUNTIME_SEC=60 \
+scripts/go2_collect_straight_line_phase_a.sh eth0 1.0 0.30 1.0 0.5
+```
+
+如果要回退到官方速度模式，不加任何自定义纠偏：
+
+```bash
+MOVE_MODE=velocity RUN_DIR="$HOME/go2_rssi_runs/test_1m_velocity" MAX_RUNTIME_SEC=60 \
 scripts/go2_collect_straight_line_phase_a.sh eth0 1.0 0.30 1.0 0.5
 ```
 
@@ -87,7 +164,12 @@ cat "$RUN_DIR/run_metadata.txt"
 通过标准：
 
 - 终端日志出现 `Target distance reached.`，或 CSV 中有 `target_reached`。
-- `has_state=1`，`odom_s_m` 接近目标距离。
+- `has_state=1`，`odom_s_m` 是累计路径长度，终点应接近目标距离。
+- 终端日志出现 `Motion client: obstacles_avoid`，并打印 `ObstaclesAvoid SwitchSet(true)`。
+- 默认终端日志应出现 `Motion mode: increment_position`。CSV 中 `motion_mode` 应为 `increment_position`。
+- 终端应每秒打印一次 `Progress: odom_s_m=... / target=...`，用于直接观察当前累计里程。
+- 默认终端日志应出现 `Increment step: full remaining distance`。如果看到 `Increment step: 0.500000 m`，说明 Go2 上仍是旧脚本/旧二进制，或显式设置了 `INCREMENT_STEP_M=0.5`。
+- 到达目标后脚本应立即打印 `Go2 runner finished; stopping RSSI/IMU background collectors.` 并退出。如果仍等到 `collection_duration`，说明 Go2 上脚本还是旧版。
 - RSSI 文件不是长期全 `-999`；至少能看到已放置信标的 `beacon_*_count > 0`。
 
 1 m 通过后再跑 3 m：
@@ -130,10 +212,14 @@ run_metadata.txt            本次采集参数
 
 ```text
 cmd_s_m      第 8 列：速度命令积分，只用于复盘
-odom_s_m     第 9 列：Go2 sport state 推算的一维路径距离，优先作为 s_gt
+odom_s_m     第 9 列：Go2 sport state 的 xy 增量累计路径长度，优先作为 s_gt
 odom_x/y     第 10/11 列：Go2 位置估计
 yaw_rad      第 16 列：朝向
 has_state    第 22 列：是否收到 sport state
+command_ret  第 23 列：最近一次运动命令返回码
+motion_client 第 24 列：运动通道，默认 obstacles_avoid
+range_obstacle_min_m 后续列：Go2 sport state 中的最近障碍距离，仅用于诊断
+motion_mode 后续列：官方运动模式，默认 increment_position
 ```
 
 快速检查：
@@ -204,4 +290,6 @@ RSSI window -> s_pred -> s_filtered -> 当前路径位置和下一个目标点
 - 每次起点、朝向、速度、信标位置尽量一致。
 - 采集时人不要贴着机器人走在信标和机器人之间。
 - 如果 `odom_s_m` 不单调或终点偏差很大，先排查 Go2 sport state 和行走模式，不要训练 RSSI 闭环。
+- 当前 `odom_s_m` 是累计路径长度，理论上应单调增长；如果目标距离明显不符，先确认 Go2 上源码和二进制都是新版。
+- 官方避障只能降低风险，不能保证避开所有障碍。70 m 测试仍要保持开阔场地、低速、旁边有人能接管或急停。
 - 实机闭环前必须先做 shadow mode：实时输出 `s_pred`，但不接入运动控制。确认没有尖峰、长时间丢包和异常跳变后，再进入低速受限闭环。
