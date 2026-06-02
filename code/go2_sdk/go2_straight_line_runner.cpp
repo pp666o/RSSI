@@ -30,7 +30,7 @@ constexpr double kRadToDeg = 57.29577951308232;
 constexpr double kMinOdomDeltaM = 0.001;
 constexpr double kIncrementCommandTimeoutSec = 5.0;
 constexpr double kProgressPrintIntervalM = 1.0;
-constexpr double kTargetToleranceM = 0.03;
+constexpr double kTargetToleranceM = 0.02;
 constexpr int kMotionVelocity = 0;
 constexpr int kMotionIncrementPosition = 1;
 
