@@ -66,7 +66,9 @@ for path in "${required_paths[@]}"; do
 done
 
 ssh "$remote" "mkdir -p $remote_dir"
-rsync -avR "${required_paths[@]}" "$remote:$remote_dir/"
+# Go2 system time is often wrong, so mtime-based rsync can skip changed files.
+# --checksum forces content comparison for this small whitelist.
+rsync -avcR "${required_paths[@]}" "$remote:$remote_dir/"
 ssh "$remote" "REMOTE_DIR=$remote_dir bash -s" <<'REMOTE_PATCH'
 set -euo pipefail
 cmake_file="$REMOTE_DIR/unitree_sdk2/example/go2/CMakeLists.txt"

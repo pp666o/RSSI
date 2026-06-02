@@ -29,6 +29,14 @@ Environment:
   IMU_ANGLE_TO_DEG_SCALE  Optional override for Go2 rpy angle scale.
   LOG_SPORT_STATE         Pass 1 to log rt/sportmodestate in sport_state_straight.csv.
                           Defaults to 1 and is required for odom-controlled distance stopping.
+  USE_OBSTACLE_AVOID      Use Unitree official obstacles_avoid client for motion.
+                          Defaults to 1. Set to 0 only for controlled debugging.
+  MOVE_MODE               Official motion command mode. Defaults to increment.
+                          increment: ObstaclesAvoid MoveToIncrementPosition.
+                          velocity: ObstaclesAvoid/Sport Move velocity command.
+  INCREMENT_STEP_M        Forward step for MOVE_MODE=increment. Defaults to 0,
+                          meaning full remaining target distance without fixed
+                          0.5 m segmentation. Set >0 only for controlled debug.
 USAGE
 }
 
@@ -46,6 +54,9 @@ warmup_sec="${WARMUP_SEC:-2.0}"
 control_hz="${CONTROL_HZ:-20}"
 extra_sec="${RSSI_EXTRA_SEC:-5}"
 log_sport_state="${LOG_SPORT_STATE:-1}"
+use_obstacle_avoid="${USE_OBSTACLE_AVOID:-1}"
+move_mode="${MOVE_MODE:-increment}"
+increment_step_m="${INCREMENT_STEP_M:-0.0}"
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 run_dir="${RUN_DIR:-$HOME/go2_rssi_runs/straight_$(date +%Y%m%d_%H%M%S)}"
@@ -109,11 +120,31 @@ mkdir -p "$run_dir"
 echo "Output directory: $run_dir"
 echo "Odom-controlled straight-line run: distance=${distance_m}m speed=${speed_mps}m/s max_runtime=${max_runtime_sec}s collection_duration=${duration_sec}s"
 echo "LOG_SPORT_STATE=$log_sport_state"
+echo "USE_OBSTACLE_AVOID=$use_obstacle_avoid"
+echo "MOVE_MODE=$move_mode"
+echo "INCREMENT_STEP_M=$increment_step_m"
 echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
 if [[ "$log_sport_state" != "1" ]]; then
   echo "LOG_SPORT_STATE must be 1 for odom-controlled distance stopping." >&2
   exit 1
 fi
+
+case "$move_mode" in
+  increment|Increment|INCREMENT|1)
+    motion_mode_arg="1"
+    if [[ "$use_obstacle_avoid" != "1" ]]; then
+      echo "MOVE_MODE=increment requires USE_OBSTACLE_AVOID=1." >&2
+      exit 1
+    fi
+    ;;
+  velocity|Velocity|VELOCITY|0)
+    motion_mode_arg="0"
+    ;;
+  *)
+    echo "MOVE_MODE must be increment or velocity." >&2
+    exit 1
+    ;;
+esac
 
 imu_args=("$network_interface" "$run_dir/imu_stream.csv" "$duration_sec")
 if [[ -n "${IMU_ACC_TO_G_SCALE:-}" || -n "${IMU_GYRO_TO_DPS_SCALE:-}" || -n "${IMU_ANGLE_TO_DEG_SCALE:-}" ]]; then
@@ -189,14 +220,15 @@ imu_pid=$!
 
 (
   cd "$run_dir"
-  sudo "$rssi_binary" "$duration_sec" rssi_realtime_windows.csv \
+  exec sudo "$rssi_binary" "$duration_sec" rssi_realtime_windows.csv \
     "$window_sec" "$step_sec" 1.0 0.0 none
 ) &
 rssi_pid=$!
 
 sleep 2
 "$line_runner" "$network_interface" "$run_dir/sport_state_straight.csv" \
-  "$distance_m" "$speed_mps" "$warmup_sec" "$control_hz" "$log_sport_state" "$max_runtime_sec" || runner_status=$?
+  "$distance_m" "$speed_mps" "$warmup_sec" "$control_hz" "$log_sport_state" "$max_runtime_sec" \
+  "$use_obstacle_avoid" "$motion_mode_arg" "$increment_step_m" || runner_status=$?
 
 if [[ "$runner_status" -ne 0 ]]; then
   echo "Go2 straight-line runner exited with status $runner_status" >&2
@@ -214,6 +246,10 @@ step_sec=$step_sec
 warmup_sec=$warmup_sec
 control_hz=$control_hz
 log_sport_state=$log_sport_state
+use_obstacle_avoid=$use_obstacle_avoid
+move_mode=$move_mode
+motion_mode_arg=$motion_mode_arg
+increment_step_m=$increment_step_m
 max_runtime_sec=$max_runtime_sec
 rssi_duration_sec=$duration_sec
 hci_dev=${HCI_DEV:-hci0}
