@@ -1,0 +1,153 @@
+go2_nav2_bridge:
+  ros__parameters:
+    network_interface: eth0
+    sport_state_topic: rt/sportmodestate
+    unitree_point_cloud_topic: rt/utlidar/cloud
+    cmd_vel_topic: /cmd_vel
+    cmd_vel_stamped: false
+    odom_topic: /odom
+    imu_topic: /go2/imu
+    ros_point_cloud_topic: /go2/pointcloud
+    path_s_topic: /go2/path_s
+    odom_frame: odom
+    base_frame: base_link
+    point_cloud_frame: base_link
+    point_cloud_transform_enabled: true
+    point_cloud_xyz_offset: [0.0, 0.0, 0.0]
+    point_cloud_rpy_offset: [0.0, 0.0, 0.0]
+    publish_tf: true
+    publish_point_cloud: true
+    stand_on_start: true
+    classic_walk_on_start: true
+    speed_level_on_start: 1
+    cmd_timeout_sec: 0.6
+    control_watchdog_hz: 20.0
+    log_cmd_vel: true
+    log_odom_state: true
+    log_point_cloud_roi: true
+    point_cloud_roi_log_period_sec: 1.0
+    require_fresh_point_cloud_for_motion: true
+    point_cloud_motion_timeout_sec: 0.8
+    self_filter_enabled: true
+    self_filter_boxes: [-0.50, 0.58, -0.52, 0.52, -0.40, 0.95]
+    max_vx_mps: 0.30
+    max_vy_mps: 0.0
+    max_wz_radps: 0.45
+
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 10.0
+    costmap_update_timeout: 2.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 10.0
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.02
+      movement_time_allowance: 40.0
+    general_goal_checker:
+      stateful: true
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.18
+      yaw_goal_tolerance: 0.80
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: false
+      min_vel_x: 0.16
+      max_vel_x: 0.22
+      min_vel_y: 0.0
+      max_vel_y: 0.0
+      max_vel_theta: 0.0
+      min_speed_xy: 0.16
+      max_speed_xy: 0.22
+      min_speed_theta: 0.0
+      acc_lim_x: 0.35
+      acc_lim_y: 0.0
+      acc_lim_theta: 0.0
+      decel_lim_x: -0.35
+      decel_lim_y: 0.0
+      decel_lim_theta: 0.0
+      vx_samples: 5
+      vy_samples: 1
+      vtheta_samples: 1
+      sim_time: 0.6
+      linear_granularity: 0.10
+      angular_granularity: 0.10
+      transform_tolerance: 0.5
+      xy_goal_tolerance: 0.18
+      trans_stopped_velocity: 0.04
+      short_circuit_trajectory_evaluation: true
+      stateful: true
+      critics: ["PathDist", "GoalDist"]
+      PathDist.scale: 24.0
+      GoalDist.scale: 16.0
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: false
+      global_frame: odom
+      robot_base_frame: base_link
+      update_frequency: 2.0
+      publish_frequency: 1.0
+      rolling_window: true
+      width: 4
+      height: 3
+      resolution: 0.10
+      footprint: "[[0.35, 0.25], [0.35, -0.25], [-0.35, -0.25], [-0.35, 0.25]]"
+      footprint_padding: 0.02
+      plugins: ["inflation_layer"]
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.30
+        cost_scaling_factor: 10.0
+      always_send_full_costmap: true
+
+lifecycle_manager_navigation:
+  ros__parameters:
+    use_sim_time: false
+    autostart: true
+    node_names: ["controller_server"]
+
+nav2_straight_path_client:
+  ros__parameters:
+    distance_m: 1.0
+    path_resolution_m: 0.20
+    odom_frame: odom
+    base_frame: base_link
+    controller_id: FollowPath
+    goal_checker_id: general_goal_checker
+    action_name: follow_path
+    server_timeout_sec: 20.0
+    tf_timeout_sec: 10.0
+
+go2_direct_straight_controller:
+  ros__parameters:
+    distance_m: 1.0
+    speed_mps: 0.20
+    max_runtime_sec: 30.0
+    control_hz: 20.0
+    start_delay_sec: 0.0
+    distance_source: path_s
+    cmd_vel_topic: /cmd_vel
+    path_s_topic: /go2/path_s
+    odom_topic: /odom
+    pointcloud_topic: /go2/pointcloud
+    use_pointcloud_avoidance: true
+    require_fresh_pointcloud: true
+    pointcloud_timeout_sec: 0.8
+    pointcloud_front_stop_m: 0.42
+    pointcloud_front_turn_m: 0.75
+    pointcloud_side_clearance_m: 0.24
+    pointcloud_front_angle_rad: 0.35
+    pointcloud_side_min_angle_rad: 0.45
+    pointcloud_side_max_angle_rad: 1.57
+    pointcloud_min_height_m: -0.20
+    pointcloud_max_height_m: 0.90
+    max_turn_radps: 0.40
+    heading_hold_kp: 0.80

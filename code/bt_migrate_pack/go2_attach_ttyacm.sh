@@ -34,6 +34,8 @@ require_command() {
 run_root() {
   if [[ "${EUID}" -eq 0 ]]; then
     "$@"
+  elif [[ "${SUDO_NONINTERACTIVE:-0}" == "1" ]]; then
+    sudo -n "$@"
   else
     sudo "$@"
   fi
@@ -138,7 +140,7 @@ fi
 before_hci="$(list_hci_devices || true)"
 attach_started=0
 
-if [[ "${EUID}" -ne 0 ]]; then
+if [[ "${EUID}" -ne 0 && "${SUDO_NONINTERACTIVE:-0}" != "1" ]]; then
   sudo -v
 fi
 

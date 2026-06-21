@@ -1,10 +1,9 @@
 # A/B Path-Tracking Plan
 
-## Key correction about current IMUWiFine `s` handling
+## Global `s` convention
 
-- `samsung_s_fingerprint_map.csv` should **not** be interpreted as one continuous path.
-- In the current IMUWiFine baseline, `s` is derived independently inside each CSV trajectory.
-- Therefore, sorting all reference points by `s` only gives a table ordered by local trajectory progress, not a single global robot path.
+- `s` should be one unified global path progress along the project centerline.
+- If `s` is derived independently inside each CSV trajectory, sorting all reference points by `s` only gives a table ordered by local trajectory progress, not a single global robot path.
 - For the real robot project, the correct setup is:
   - define one global path centerline
   - assign a unified global `s` to every reference sample
@@ -16,6 +15,7 @@
 - Input: RSSI vector from 10 beacons
 - Output: path progress `s`
 - Optional future output: lateral deviation `e`
+- State-space rule: the project state is `s` now and `(s, e)` later. Velocity, yaw, IMU motion score, odom deltas, and command velocity are external inputs/constraints/features, not state variables.
 
 ## Scheme A
 
@@ -56,7 +56,8 @@ RSSI fingerprint + path constraint + temporal smoothing
 1. Freeze the real-project data format.
    - one row per reference sample
    - columns: `timestamp`, `s`, `beacon_1 ... beacon_10`
-   - optional: `e`, `x`, `y`
+   - optional state extension: `e`
+   - optional debug/visualization only: `x`, `y`
 
 2. Freeze the collection rule.
    - one path centerline

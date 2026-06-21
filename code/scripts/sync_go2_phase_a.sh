@@ -44,6 +44,7 @@ required_paths=(
   "GO2_PHASE_A_STRAIGHT_LINE.md"
   "test_rssi.cpp"
   "scripts/build_rssi_logger.sh"
+  "scripts/configure_go2_rssi_sudoers.sh"
   "scripts/go2_collect_rssi_imu.sh"
   "scripts/go2_collect_straight_line_phase_a.sh"
   "scripts/sync_go2_phase_a.sh"

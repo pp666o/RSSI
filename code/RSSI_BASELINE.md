@@ -21,8 +21,8 @@ Example smoke test:
 ```powershell
 .\.venv\Scripts\python.exe .\rssi_fingerprint_baseline.py `
   --target-mode s `
-  --train "..\dataset\datasets--issai--IMUWiFine\snapshots\0d43350cb8ce12e10ff605c6c89b6062a0d58d7e\IMU_DATA\raw_IUMIWiFi\oppo\train\csv_files_processed\DATA_02112020_160427.csv" `
-  --test "..\dataset\datasets--issai--IMUWiFine\snapshots\0d43350cb8ce12e10ff605c6c89b6062a0d58d7e\IMU_DATA\raw_IUMIWiFi\oppo\val\csv_files_processed\DATA_20112020_153104.csv" `
+  --train ".\examples\robot_s_demo\train.csv" `
+  --test ".\examples\robot_s_demo\test.csv" `
   --out "baseline_outputs\smoke_predictions.csv" `
   --map-out "baseline_outputs\smoke_fingerprint_map.csv"
 ```
@@ -32,8 +32,8 @@ Example directory run:
 ```powershell
 .\.venv\Scripts\python.exe .\rssi_fingerprint_baseline.py `
   --target-mode s `
-  --train "..\dataset\datasets--issai--IMUWiFine\snapshots\0d43350cb8ce12e10ff605c6c89b6062a0d58d7e\IMU_DATA\raw_IUMIWiFi\oppo\train\csv_files_processed" `
-  --test "..\dataset\datasets--issai--IMUWiFine\snapshots\0d43350cb8ce12e10ff605c6c89b6062a0d58d7e\IMU_DATA\raw_IUMIWiFi\oppo\val\csv_files_processed" `
+  --train ".\data\field_train" `
+  --test ".\data\field_val" `
   --k 3 `
   --rssi-window 5 `
   --train-row-stride 5 `

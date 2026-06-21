@@ -1,0 +1,97 @@
+flowchart LR
+  %% Go2 RSSI + IMU project overview for the tutorial manual.
+  %% Main method: RSSI/IMU/odom provide localization and path progress.
+  %% Nav2 localization output is logged only as reference/debug, not fed into the main algorithm.
+
+  classDef hardware fill:#E8F3FF,stroke:#3B82F6,color:#0F172A,stroke-width:1px
+  classDef collect fill:#ECFDF3,stroke:#22C55E,color:#0F172A,stroke-width:1px
+  classDef algo fill:#FFF7ED,stroke:#F97316,color:#0F172A,stroke-width:1px
+  classDef motion fill:#F5F3FF,stroke:#8B5CF6,color:#0F172A,stroke-width:1px
+  classDef data fill:#F8FAFC,stroke:#64748B,color:#0F172A,stroke-width:1px
+  classDef note fill:#FEF2F2,stroke:#EF4444,color:#0F172A,stroke-width:1px
+
+  subgraph HW["硬件与通信层"]
+    A["BLE 信标 / RSSI 接收器<br/>HCI: hci0/hci1"]
+    B["Unitree Go2<br/>DDS: rt/sportmodestate, rt/lowstate, rt/utlidar/cloud"]
+    C["外部控制电脑<br/>Ubuntu 22.04 + ROS 2 Humble + ros2_ws"]
+  end
+
+  subgraph Collect["采集与桥接层"]
+    D["RSSI scanner<br/>test_rssi / go2_collect_rssi_imu.sh"]
+    E["Go2 IMU logger<br/>rt/lowstate -> imu_stream.csv"]
+    F["go2_nav2_bridge<br/>DDS -> ROS 2 topics"]
+    G["Phase A runner<br/>go2_straight_line_runner"]
+  end
+
+  subgraph Topics["ROS 2 运行时接口"]
+    H["/odom"]
+    I["/go2/imu"]
+    J["/go2/path_s"]
+    K["/go2/pointcloud"]
+    L["/cmd_vel"]
+  end
+
+  subgraph Offline["离线建库与评估"]
+    M["RUN_DIR 数据集<br/>rssi_realtime_windows.csv<br/>rssi_raw_stream.csv<br/>imu_stream.csv<br/>sport_state_straight.csv<br/>run_metadata.txt"]
+    N["时间对齐 / 分桶<br/>RSSI window + odom_s_m/path_s"]
+    O["全局路径指纹库<br/>s -> beacon_mean/std"]
+    P["算法对比<br/>RSSI only vs RSSI + IMU/odom"]
+    Q["指标输出<br/>|s_pred - s_gt|, median, p75, p90, jump count"]
+  end
+
+  subgraph Online["在线定位与路径复现"]
+    R["/rssi_scan<br/>Float32MultiArray"]
+    S["rssi_localizer_node<br/>KNN + 连续性约束 + 平滑"]
+    T["/path_s_estimate<br/>RSSI 估计路径进度"]
+    U["路线/控制客户端<br/>把目标 s 转换成运动命令"]
+  end
+
+  subgraph Motion["运动后端"]
+    V["推荐: direct backend<br/>go2_direct_straight_controller<br/>/go2/path_s 或 /odom 到距停止"]
+    W["可选: Nav2 backend<br/>FollowPath -> velocity_smoother -> collision_monitor"]
+    X["go2_nav2_bridge<br/>/cmd_vel -> SportClient::Move"]
+    Y["Go2 实机运动<br/>速度控制 / 避障实验 / 状态反馈"]
+  end
+
+  Z["约束: Nav2 localization 仅作参考/调试日志<br/>不作为主 RSSI 定位算法输入"]:::note
+
+  A --> D
+  B --> E
+  B --> F
+  B --> G
+  C --> F
+
+  D --> M
+  E --> M
+  G --> M
+  F --> H
+  F --> I
+  F --> J
+  F --> K
+
+  M --> N --> O --> P --> Q
+  O --> S
+  R --> S --> T --> U
+  I -. "短时连续性/融合输入" .-> S
+  H -. "里程计参考" .-> S
+  J -. "路径进度参考/监督标签" .-> N
+
+  U --> V
+  U --> W
+  V --> L
+  W --> L
+  L --> X --> Y
+  Y --> B
+  K --> W
+  H --> V
+  J --> V
+
+  W -. "baseline/debug only" .-> Z
+  H -. "记录参考" .-> Z
+
+  class A,B,C hardware
+  class D,E,F,G collect
+  class H,I,J,K,L data
+  class M,N,O,P,Q data
+  class R,S,T,U algo
+  class V,W,X,Y motion

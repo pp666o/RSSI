@@ -1,0 +1,317 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1180" viewBox="0 0 1800 1180" role="img" aria-labelledby="title desc">
+  <title id="title">Go2 RSSI + IMU 项目总体流程图</title>
+  <desc id="desc">展示 Go2 机器狗项目从硬件采集、ROS 2 桥接、离线建库评估到在线定位和运动控制的总体数据流。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#ea580c"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed"/>
+    </marker>
+    <style>
+      text {
+        font-family: "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", "WenQuanYi Micro Hei", Arial, sans-serif;
+        fill: #0f172a;
+      }
+      .title {
+        font-size: 34px;
+        font-weight: 700;
+      }
+      .subtitle {
+        font-size: 17px;
+        fill: #475569;
+      }
+      .section-title {
+        font-size: 20px;
+        font-weight: 700;
+      }
+      .box-title {
+        font-size: 18px;
+        font-weight: 700;
+      }
+      .box-text {
+        font-size: 14px;
+        fill: #334155;
+      }
+      .small {
+        font-size: 13px;
+        fill: #475569;
+      }
+      .group {
+        fill: #ffffff;
+        stroke-width: 1.5;
+        rx: 18;
+      }
+      .hardware-group {
+        stroke: #93c5fd;
+      }
+      .collect-group {
+        stroke: #86efac;
+      }
+      .offline-group {
+        stroke: #cbd5e1;
+      }
+      .online-group {
+        stroke: #fdba74;
+      }
+      .motion-group {
+        stroke: #c4b5fd;
+      }
+      .box {
+        stroke-width: 1.4;
+        rx: 12;
+      }
+      .hardware {
+        fill: #eff6ff;
+        stroke: #3b82f6;
+      }
+      .collect {
+        fill: #f0fdf4;
+        stroke: #22c55e;
+      }
+      .data {
+        fill: #f8fafc;
+        stroke: #64748b;
+      }
+      .algo {
+        fill: #fff7ed;
+        stroke: #f97316;
+      }
+      .motion {
+        fill: #f5f3ff;
+        stroke: #8b5cf6;
+      }
+      .note {
+        fill: #fef2f2;
+        stroke: #ef4444;
+      }
+      .arrow {
+        fill: none;
+        stroke: #334155;
+        stroke-width: 2.2;
+        marker-end: url(#arrow);
+      }
+      .arrow-blue {
+        fill: none;
+        stroke: #2563eb;
+        stroke-width: 2.4;
+        marker-end: url(#arrowBlue);
+      }
+      .arrow-orange {
+        fill: none;
+        stroke: #ea580c;
+        stroke-width: 2.4;
+        marker-end: url(#arrowOrange);
+      }
+      .arrow-purple {
+        fill: none;
+        stroke: #7c3aed;
+        stroke-width: 2.4;
+        marker-end: url(#arrowPurple);
+      }
+      .arrow-dashed {
+        fill: none;
+        stroke: #64748b;
+        stroke-width: 2;
+        stroke-dasharray: 8 7;
+        marker-end: url(#arrow);
+      }
+      .label-bg {
+        fill: #ffffff;
+        opacity: 0.92;
+      }
+      .label {
+        font-size: 13px;
+        fill: #475569;
+      }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1180" fill="#fbfdff"/>
+
+  <text x="900" y="52" text-anchor="middle" class="title">Go2 机器狗 RSSI + IMU 融合定位与运动控制总体流程</text>
+  <text x="900" y="82" text-anchor="middle" class="subtitle">主线：RSSI/IMU/odom 建立路径进度 s 的定位能力；direct 后端负责稳定采集，Nav2 后端用于避障/对照实验</text>
+
+  <rect x="35" y="115" width="360" height="890" class="group hardware-group"/>
+  <text x="60" y="150" class="section-title">1. 硬件与通信层</text>
+
+  <rect x="70" y="185" width="290" height="118" class="box hardware"/>
+  <text x="215" y="220" text-anchor="middle" class="box-title">BLE 信标 / RSSI 接收器</text>
+  <text x="215" y="250" text-anchor="middle" class="box-text">蓝牙 HCI 扫描：hci0 / hci1</text>
+  <text x="215" y="274" text-anchor="middle" class="box-text">输出广播包 RSSI</text>
+
+  <rect x="70" y="340" width="290" height="148" class="box hardware"/>
+  <text x="215" y="375" text-anchor="middle" class="box-title">Unitree Go2 实机</text>
+  <text x="215" y="405" text-anchor="middle" class="box-text">DDS: rt/sportmodestate</text>
+  <text x="215" y="429" text-anchor="middle" class="box-text">DDS: rt/lowstate</text>
+  <text x="215" y="453" text-anchor="middle" class="box-text">DDS: rt/utlidar/cloud</text>
+
+  <rect x="70" y="525" width="290" height="126" class="box hardware"/>
+  <text x="215" y="560" text-anchor="middle" class="box-title">外部控制电脑</text>
+  <text x="215" y="590" text-anchor="middle" class="box-text">Ubuntu 22.04 + ROS 2 Humble</text>
+  <text x="215" y="614" text-anchor="middle" class="box-text">ros2_ws / Unitree SDK2</text>
+
+  <rect x="430" y="115" width="365" height="890" class="group collect-group"/>
+  <text x="455" y="150" class="section-title">2. 采集与 ROS 2 桥接</text>
+
+  <rect x="465" y="185" width="295" height="118" class="box collect"/>
+  <text x="612.5" y="220" text-anchor="middle" class="box-title">RSSI scanner</text>
+  <text x="612.5" y="250" text-anchor="middle" class="box-text">test_rssi / go2_collect_rssi_imu.sh</text>
+  <text x="612.5" y="274" text-anchor="middle" class="box-text">窗口均值、方差、count</text>
+
+  <rect x="465" y="330" width="295" height="118" class="box collect"/>
+  <text x="612.5" y="365" text-anchor="middle" class="box-title">Go2 IMU logger</text>
+  <text x="612.5" y="395" text-anchor="middle" class="box-text">rt/lowstate -> imu_stream.csv</text>
+  <text x="612.5" y="419" text-anchor="middle" class="box-text">acc / gyro / rpy</text>
+
+  <rect x="465" y="475" width="295" height="152" class="box collect"/>
+  <text x="612.5" y="510" text-anchor="middle" class="box-title">go2_nav2_bridge</text>
+  <text x="612.5" y="540" text-anchor="middle" class="box-text">DDS -> ROS 2 topics</text>
+  <text x="612.5" y="564" text-anchor="middle" class="box-text">/odom, /go2/imu, /go2/path_s</text>
+  <text x="612.5" y="588" text-anchor="middle" class="box-text">/go2/pointcloud, /tf</text>
+
+  <rect x="465" y="675" width="295" height="130" class="box collect"/>
+  <text x="612.5" y="710" text-anchor="middle" class="box-title">Phase A runner</text>
+  <text x="612.5" y="740" text-anchor="middle" class="box-text">go2_straight_line_runner</text>
+  <text x="612.5" y="764" text-anchor="middle" class="box-text">累计 odom_s_m，按目标距离停止</text>
+
+  <rect x="830" y="115" width="480" height="415" class="group offline-group"/>
+  <text x="855" y="150" class="section-title">3. 离线建库与评估</text>
+
+  <rect x="865" y="185" width="410" height="120" class="box data"/>
+  <text x="1070" y="218" text-anchor="middle" class="box-title">RUN_DIR 实验数据集</text>
+  <text x="1070" y="248" text-anchor="middle" class="box-text">rssi_realtime_windows.csv / rssi_raw_stream.csv</text>
+  <text x="1070" y="272" text-anchor="middle" class="box-text">imu_stream.csv / sport_state_straight.csv / metadata</text>
+
+  <rect x="865" y="335" width="180" height="108" class="box data"/>
+  <text x="955" y="370" text-anchor="middle" class="box-title">时间对齐 / 分桶</text>
+  <text x="955" y="400" text-anchor="middle" class="box-text">RSSI window</text>
+  <text x="955" y="422" text-anchor="middle" class="box-text">+ odom_s_m / path_s</text>
+
+  <rect x="1095" y="335" width="180" height="108" class="box data"/>
+  <text x="1185" y="370" text-anchor="middle" class="box-title">全局路径指纹库</text>
+  <text x="1185" y="400" text-anchor="middle" class="box-text">s -> beacon mean/std</text>
+  <text x="1185" y="422" text-anchor="middle" class="box-text">统一全局路径进度</text>
+
+  <rect x="865" y="463" width="180" height="46" class="box data"/>
+  <text x="955" y="493" text-anchor="middle" class="box-text">RSSI only</text>
+
+  <rect x="1095" y="463" width="180" height="46" class="box data"/>
+  <text x="1185" y="493" text-anchor="middle" class="box-text">RSSI + IMU/odom</text>
+
+  <rect x="830" y="570" width="480" height="435" class="group online-group"/>
+  <text x="855" y="605" class="section-title">4. 在线定位与路线复现</text>
+
+  <rect x="865" y="640" width="180" height="86" class="box algo"/>
+  <text x="955" y="675" text-anchor="middle" class="box-title">/rssi_scan</text>
+  <text x="955" y="705" text-anchor="middle" class="box-text">Float32MultiArray</text>
+
+  <rect x="1095" y="640" width="180" height="122" class="box algo"/>
+  <text x="1185" y="674" text-anchor="middle" class="box-title">rssi_localizer_node</text>
+  <text x="1185" y="704" text-anchor="middle" class="box-text">KNN 指纹匹配</text>
+  <text x="1185" y="728" text-anchor="middle" class="box-text">连续性约束 + 平滑</text>
+
+  <rect x="865" y="810" width="180" height="86" class="box algo"/>
+  <text x="955" y="845" text-anchor="middle" class="box-title">/path_s_estimate</text>
+  <text x="955" y="875" text-anchor="middle" class="box-text">RSSI 估计路径进度</text>
+
+  <rect x="1095" y="810" width="180" height="108" class="box algo"/>
+  <text x="1185" y="845" text-anchor="middle" class="box-title">路线/控制客户端</text>
+  <text x="1185" y="875" text-anchor="middle" class="box-text">目标 s -> 下一段路径</text>
+  <text x="1185" y="897" text-anchor="middle" class="box-text">输出运动命令</text>
+
+  <rect x="1345" y="115" width="420" height="890" class="group motion-group"/>
+  <text x="1370" y="150" class="section-title">5. 运动后端与安全控制</text>
+
+  <rect x="1380" y="185" width="350" height="130" class="box motion"/>
+  <text x="1555" y="220" text-anchor="middle" class="box-title">推荐：direct backend</text>
+  <text x="1555" y="250" text-anchor="middle" class="box-text">go2_direct_straight_controller</text>
+  <text x="1555" y="274" text-anchor="middle" class="box-text">根据 /go2/path_s 或 /odom 到距停止</text>
+
+  <rect x="1380" y="360" width="350" height="140" class="box motion"/>
+  <text x="1555" y="395" text-anchor="middle" class="box-title">可选：Nav2 backend</text>
+  <text x="1555" y="425" text-anchor="middle" class="box-text">FollowPath -> velocity_smoother</text>
+  <text x="1555" y="449" text-anchor="middle" class="box-text">-> collision_monitor -> /cmd_vel</text>
+  <text x="1555" y="473" text-anchor="middle" class="box-text">用于避障/对照实验</text>
+
+  <rect x="1380" y="545" width="350" height="124" class="box motion"/>
+  <text x="1555" y="580" text-anchor="middle" class="box-title">go2_nav2_bridge</text>
+  <text x="1555" y="610" text-anchor="middle" class="box-text">/cmd_vel -> SportClient::Move</text>
+  <text x="1555" y="634" text-anchor="middle" class="box-text">速度限制、点云 watchdog、模式初始化</text>
+
+  <rect x="1380" y="710" width="350" height="116" class="box motion"/>
+  <text x="1555" y="745" text-anchor="middle" class="box-title">Go2 实机运动</text>
+  <text x="1555" y="775" text-anchor="middle" class="box-text">速度控制 / 避障实验 / 状态反馈</text>
+  <text x="1555" y="799" text-anchor="middle" class="box-text">继续发布 DDS 状态</text>
+
+  <rect x="1380" y="875" width="350" height="82" class="box note"/>
+  <text x="1555" y="908" text-anchor="middle" class="box-title">重要约束</text>
+  <text x="1555" y="936" text-anchor="middle" class="box-text">Nav2 localization 只记录为参考/调试</text>
+  <text x="1555" y="958" text-anchor="middle" class="box-text">不作为主 RSSI 定位算法输入</text>
+
+  <!-- Hardware to collection -->
+  <path d="M360 244 C398 244 420 244 465 244" class="arrow-blue"/>
+  <path d="M360 395 C400 395 420 389 465 389" class="arrow-blue"/>
+  <path d="M360 430 C410 430 420 530 465 540" class="arrow-blue"/>
+  <path d="M360 454 C406 454 420 705 465 740" class="arrow-blue"/>
+  <path d="M360 588 C406 588 420 550 465 550" class="arrow-blue"/>
+
+  <!-- Collection to data/topics -->
+  <path d="M760 244 C810 244 820 244 865 244" class="arrow"/>
+  <path d="M760 389 C805 389 817 274 865 274" class="arrow"/>
+  <path d="M760 740 C805 740 817 292 865 292" class="arrow"/>
+  <path d="M760 551 C820 551 812 390 865 390" class="arrow"/>
+
+  <!-- Offline flow -->
+  <path d="M1045 389 C1065 389 1075 389 1095 389" class="arrow"/>
+  <path d="M955 443 L955 463" class="arrow"/>
+  <path d="M1185 443 L1185 463" class="arrow"/>
+  <path d="M1185 335 C1185 300 1185 286 1185 305" class="arrow-dashed"/>
+
+  <!-- Online localization -->
+  <path d="M1045 683 C1065 683 1075 683 1095 683" class="arrow-orange"/>
+  <path d="M1185 762 C1185 790 1035 790 955 810" class="arrow-orange"/>
+  <path d="M1045 853 C1065 853 1075 853 1095 853" class="arrow-orange"/>
+  <path d="M1185 443 C1185 520 1185 585 1185 640" class="arrow-dashed"/>
+
+  <!-- Runtime signals to online algorithm -->
+  <path d="M760 545 C820 545 820 705 1095 705" class="arrow-dashed"/>
+  <rect x="812" y="646" width="118" height="22" rx="8" class="label-bg"/>
+  <text x="871" y="662" text-anchor="middle" class="label">/go2/imu, /odom</text>
+
+  <!-- Online to motion -->
+  <path d="M1275 842 C1325 842 1335 250 1380 250" class="arrow-purple"/>
+  <path d="M1275 878 C1325 878 1335 430 1380 430" class="arrow-purple"/>
+
+  <!-- Motion chain -->
+  <path d="M1555 315 L1555 360" class="arrow-purple"/>
+  <path d="M1555 500 L1555 545" class="arrow-purple"/>
+  <path d="M1555 669 L1555 710" class="arrow-purple"/>
+  <path d="M1730 768 C1780 768 1780 1060 215 1060 C170 1060 170 488 215 488" class="arrow-dashed"/>
+  <rect x="1145" y="1045" width="205" height="24" rx="8" class="label-bg"/>
+  <text x="1247.5" y="1062" text-anchor="middle" class="label">Go2 状态反馈回 DDS</text>
+
+  <!-- Direct/Nav2 dependencies -->
+  <path d="M760 551 C1010 551 1240 250 1380 250" class="arrow-dashed"/>
+  <rect x="1058" y="364" width="122" height="22" rx="8" class="label-bg"/>
+  <text x="1119" y="380" text-anchor="middle" class="label">/go2/path_s, /odom</text>
+
+  <path d="M760 585 C1010 585 1230 430 1380 430" class="arrow-dashed"/>
+  <rect x="1064" y="495" width="104" height="22" rx="8" class="label-bg"/>
+  <text x="1116" y="511" text-anchor="middle" class="label">/go2/pointcloud</text>
+
+  <!-- Note reference -->
+  <path d="M1555 500 L1555 875" class="arrow-dashed"/>
+
+  <!-- Legend -->
+  <rect x="35" y="1030" width="1730" height="105" rx="18" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="65" y="1065" class="section-title">读图方式</text>
+  <text x="65" y="1095" class="small">蓝色箭头：硬件/SDK 数据进入采集层；灰色箭头：实验数据与参考信号；橙色箭头：RSSI 在线定位；紫色箭头：运动控制链路。</text>
+  <text x="65" y="1122" class="small">推荐实验主线是 direct backend 做稳定路径采集和 RSSI/IMU 建库；Nav2 backend 用来做局部规划、点云避障和对照实验，不改变主算法贡献边界。</text>
+</svg>

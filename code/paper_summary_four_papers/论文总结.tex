@@ -1,0 +1,731 @@
+\documentclass[UTF8,a4paper,12pt]{ctexrep}
+
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  citecolor=blue!60!black,
+  pdftitle={四篇室内定位与多传感器融合论文总结},
+  pdfauthor={RSSI/IMU Go2 Project}
+}
+
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{notebg}{RGB}{245,249,255}
+\definecolor{warnbg}{RGB}{255,248,238}
+\definecolor{goodgreen}{RGB}{28,120,70}
+\definecolor{deepblue}{RGB}{30,88,170}
+\definecolor{deeporange}{RGB}{190,96,20}
+
+\lstdefinestyle{shellstyle}{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0.2pt,
+  rulecolor=\color{black!25},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false
+}
+\lstset{style=shellstyle}
+
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\file}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\topic}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\pkg}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\paperid}[1]{\texttt{\detokenize{#1}}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\newenvironment{notebox}[1]
+{\begin{center}\begin{minipage}{0.94\linewidth}\color{deepblue}\hrule\vspace{0.6em}\textbf{#1}\par\vspace{0.4em}\color{black}}
+{\vspace{0.4em}\hrule\end{minipage}\end{center}}
+
+\newenvironment{warnbox}[1]
+{\begin{center}\begin{minipage}{0.94\linewidth}\color{deeporange}\hrule\vspace{0.6em}\textbf{#1}\par\vspace{0.4em}\color{black}}
+{\vspace{0.4em}\hrule\end{minipage}\end{center}}
+
+\setlist[itemize]{leftmargin=2em,itemsep=0.25em,topsep=0.35em}
+\setlist[enumerate]{leftmargin=2em,itemsep=0.25em,topsep=0.35em}
+\renewcommand{\arraystretch}{1.22}
+\setlength{\tabcolsep}{4pt}
+
+\title{四篇室内定位与多传感器融合论文总结\\
+\large 面向 Go2 RSSI/IMU/Nav2 项目的背景、模型、算法与数据流}
+\author{RSSI/IMU Go2 Project Notes}
+\date{2026 年 6 月 16 日}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\chapter{论文一：HGP-RL 分布式分层高斯过程 WiFi 相对定位}
+
+\section{基本信息}
+
+\begin{itemize}
+  \item 论文：\emph{HGP-RL: Distributed Hierarchical Gaussian Processes for Wi-Fi-based Relative Localization in Multi-Robot Systems}
+  \item 文件：\file{code/paper/2307.10614v2.pdf}
+  \item 主题：WiFi RSSI、多机器人相对定位、Gaussian Process Regression、分层推理、AP-oriented 坐标变换。
+\end{itemize}
+
+\section{研究背景}
+
+多机器人系统在物流、巡检、救援、编队、覆盖和 rendezvous 等任务中，需要知道其他机器人相对自己的位置。传统方案常依赖相机、RGB-D、LiDAR 或多机器人 SLAM，但这些方案有几个问题：
+
+\begin{itemize}
+  \item 传感器贵、重、耗电，算力需求高。
+  \item 多机器人 SLAM 常需要地图重叠、特征匹配和 loop closure。
+  \item 在 GPS-denied 或希望保护全局位置隐私的环境里，绝对位置并不总是可用。
+  \item 对很多协作控制任务来说，相对定位足够，不一定需要完整全局地图。
+\end{itemize}
+
+WiFi RSSI 是一个诱人的替代信息源：几乎所有机器人或嵌入式平台都可获得 WiFi 信号，RSSI 与距离存在粗略相关性。但 RSSI 的困难也很明显：室内多径、遮挡、非视距、背景噪声会让 RSSI 场出现局部假峰和强波动。因此作者没有直接用 path-loss 公式，而是用高斯过程回归去学习 RSSI 空间场，并进一步设计分层推理降低实时搜索成本。
+
+\section{问题定义}
+
+假设有 \(R\) 个机器人都连接到同一个固定 WiFi AP。第 \(i\) 个机器人只能在自己的局部坐标系中表示位置，记为 \({}^{i}p_i\)。目标是让机器人 \(i\) 估计任意邻居机器人 \(j\) 在自己坐标系中的相对位置 \({}^{i}p_j\)。
+
+机器人可以共享的信息只有：
+
+\begin{itemize}
+  \item 自己局部坐标系里的当前位置，来自 odometry/IMU；
+  \item 自己估计到的 AP 位置；
+  \item 这些信息仍然都在各自局部坐标系中表达。
+\end{itemize}
+
+这意味着共享数据不能直接相减，需要经过坐标变换。
+
+\section{模型：RSSI 的 Gaussian Process Regression}
+
+论文将位置到 RSSI 的映射看成未知函数：
+
+\[
+f: p=(x,y) \mapsto \mathrm{RSSI}.
+\]
+
+已采集的数据集为：
+
+\[
+\mathcal{D}=\{(x_q,y_q)\}_{q=1}^{M},
+\]
+
+其中 \(x_q\) 是机器人采样位置，\(y_q\) 是该位置测得的 RSSI。GP 由均值函数和核函数定义。论文采用常数均值：
+
+\[
+m(x)=\mu,
+\]
+
+核函数采用平方指数核，也就是 RBF 核：
+
+\[
+k(x,x')=\sigma_f^2 \exp\left(-\frac{\|x-x'\|^2}{2l^2}\right).
+\]
+
+这个核的直觉是：空间上越近的点，RSSI 越相关；越远的点，相关性越弱。对室内 RSSI 来说这不是完美真实，但作为平滑先验足够实用。
+
+GP 推理输出两个量：
+
+\begin{itemize}
+  \item \(\mu_M(q_\star)\)：测试位置 \(q_\star\) 的预测 RSSI 均值；
+  \item \(\sigma_M^2(q_\star)\)：预测不确定性。
+\end{itemize}
+
+训练复杂度约为 \(O(M^3)\)，单点推理复杂度约为 \(O(M^2)\)。因此如果在一个大区域内对大量高分辨率网格点逐点推理，代价会很高。
+
+\section{算法一：分层 AP 搜索}
+
+如果用普通 dense search，AP 位置可以写成：
+
+\[
+{}^{i}p_{\mathrm{AP}}^\star=\arg\max_{p\in {}^{i}B}\mu_M(p).
+\]
+
+也就是在机器人 \(i\) 的搜索边界 \({}^{i}B\) 内，找 GP 预测 RSSI 均值最大的点作为 AP。问题是若每个维度有 \(N\) 个网格点，二维空间就有 \(N^2\) 个候选点。搜索越精细，推理成本越高。
+
+HGP-RL 的关键是 coarse-to-fine：
+
+\begin{enumerate}
+  \item 第一层用粗分辨率在较大范围内找 AP 的大致位置。
+  \item 第二层以上一层结果为中心，结合上一层不确定性，缩小边界并提高分辨率。
+  \item 第三层、第四层继续细化。
+  \item 最终位置由各层偏移累加得到。
+\end{enumerate}
+
+复杂度从全分辨率的 \(O(N^d)\) 量级下降到：
+
+\[
+O(K(\lambda N)^d),
+\]
+
+其中 \(K\) 是层数，\(\lambda N \ll N\) 是每层稀疏后的网格规模。论文实验中使用 4 层分辨率：
+
+\[
+[0.1\text{ m}, 0.05\text{ m}, 0.025\text{ m}, 0.0125\text{ m}].
+\]
+
+论文还比较了梯度搜索。梯度搜索在真实 RSSI map 中容易陷入局部最大值，尤其多径和反射会造成假峰。分层搜索从粗到细先锁定全局大区域，再局部细化，因此更不容易被局部噪声峰吸走。
+
+\section{算法二：AP-oriented 相对定位}
+
+所有机器人都在定位同一个物理 AP。设机器人 \(i\) 估计的 AP 位置为 \({}^{i}p_{\mathrm{AP}}\)，机器人 \(j\) 估计的 AP 位置为 \({}^{j}p_{\mathrm{AP}}\)。如果知道从 \(j\) 坐标系到 \(i\) 坐标系的旋转矩阵 \({}^{i}R_j\)，则同一条“机器人到 AP”的向量在两个坐标系中满足：
+
+\[
+({}^{i}p_j-{}^{i}p_{\mathrm{AP}})
+=
+{}^{i}R_j({}^{j}p_j-{}^{j}p_{\mathrm{AP}}).
+\]
+
+因此机器人 \(i\) 可以求出机器人 \(j\) 在自己坐标系中的位置：
+
+\[
+{}^{i}p_j
+=
+{}^{i}p_{\mathrm{AP}}
++{}^{i}R_j({}^{j}p_j-{}^{j}p_{\mathrm{AP}}).
+\]
+
+这一公式很重要。它说明论文并不需要全局地图，也不需要机器人之间直接测距。AP 成了一个共同锚点，机器人只需要共享很小的数据包：自己的 odometry 位姿和 AP 估计。
+
+\begin{warnbox}{关键假设}
+论文假设机器人之间的相对朝向或旋转矩阵可知。作者提到可由初始编队、IMU 磁力计、AoA 或 RSSI bearing 估计获得。但在室内地面机器人上，磁力计容易受金属和建筑结构影响。你的 Go2 项目如果照搬，需要用 yaw 初始化、视觉标志、UWB bearing 或短程对准动作来解决朝向问题。
+\end{warnbox}
+
+\section{数据处理与数据流}
+
+HGP-RL 的数据流可以写成：
+
+\begin{lstlisting}
+Per robot:
+  random walk / exploration
+  -> collect (local odom position, WiFi RSSI from common AP)
+  -> train sparse GPR RSSI map
+  -> hierarchical inference for AP position
+  -> share {local odom pose, predicted AP pose}
+  -> AP-oriented vector transformation
+  -> relative position of neighbor robots
+\end{lstlisting}
+
+在仿真实验中，RSSI 由 path-loss 模型生成：
+
+\[
+\mathrm{RSSI}({}^{i}p_i)
+=
+\mathrm{RSSI}_{d0}
+-10\eta \log_{10}\|{}^{i}p_i-{}^{i}p_{\mathrm{AP}}\|
+-N_s(0,\sigma_s^2),
+\]
+
+并额外加入零均值高斯噪声模拟多径。参数包括 \(\mathrm{RSSI}_{d0}=-20\) dBm、路径损耗指数 \(\eta=3\)、shadow fading 标准差 2 dBm、多径噪声标准差 2 dBm。
+
+\section{实验与结果}
+
+论文在 Robotarium 仿真中部署 3 个 unicycle robot，进行 300 次迭代、10 次 trial。比较对象包括标准 GPR、MEGPR、TRN 和 DGORL。
+
+主要结果：
+
+\begin{itemize}
+  \item HGP-RL 的 AP 定位误差接近 dense GPR，但推理时间更低。
+  \item 相比 sparse GPR/MEGPR，AP 定位误差降低约 36\%。
+  \item 相比 MEGPR-Dense，误差降低约 8\%。
+  \item HGP-RL 训练时间比 dense GPR/MEGPR 少约 40\%。
+  \item 相对定位 RMSE 在高噪声下比 TRN 和 DGORL 更低，最高约 2 倍提升。
+  \item 3 到 10 台机器人规模扩展时，RMSE 从 0.073 m 增至 0.124 m，处理时间从 33 ms 增至 121 ms。
+  \item ROS 真机实验中，3 台 Turtlebot2e 在 \(10\text{ m}\times13\text{ m}\) 多房间实验室实现 rendezvous，AP 定位精度 \(0.57\pm0.12\) m，相对轨迹误差 \(0.42\pm0.09\) m。
+\end{itemize}
+
+\section{对 Go2 项目的可借鉴方法}
+
+这篇最适合转化为本项目的 RSSI baseline：
+
+\begin{enumerate}
+  \item 把充电桩、路由器或 BLE beacon 看成 AP/source。
+  \item Go2 在采集阶段记录 \((x,y,s,\mathrm{RSSI},\mathrm{IMU})\)。
+  \item 先用 SLAM/Nav2/odom 给 RSSI 打标签，训练 GP radio map。
+  \item 在线阶段用分层搜索估计 AP 或路径进度 \(s\)。
+  \item 若做多机器人或回充，广播 \(\{\mathrm{odom}, \mathrm{AP/dock\ estimate}\}\)，降低通信量。
+\end{enumerate}
+
+如果当前阶段只做一维路径进度 \(s\)，可以简化为：
+
+\begin{lstlisting}
+Level 1: every 1.0 m along path
+Level 2: around best s, every 0.25 m
+Level 3: around best s, every 0.05 m
+Output: s_hat, uncertainty
+\end{lstlisting}
+
+这样比 dense fingerprint 全表搜索更快，也比纯神经网络更可解释。
+
+\chapter{论文二：Robust Indoor Localization with Ranging-IMU Fusion}
+
+\section{基本信息}
+
+\begin{itemize}
+  \item 论文：\emph{Robust Indoor Localization with Ranging-IMU Fusion}
+  \item 文件：\file{code/paper/2309.08803v1.pdf}
+  \item 主题：UWB/ToF 测距、IMU 预积分、NLOS、多径、鲁棒因子图、iSAM2、D-iSAM2。
+\end{itemize}
+
+\section{研究背景}
+
+室内定位常用视觉惯性里程计或视觉 SLAM，但相机带来隐私、算力、能耗和光照问题。UWB 测距功耗低、精度高，适合穿戴设备和机器人。但室内无线测距最大问题是 NLOS 和多径：信号绕墙、反射、遮挡后，测得距离往往比真实直线距离更长，而且误差不是普通对称高斯噪声。
+
+许多系统用 EKF 加异常值剔除处理 range + IMU，但过滤方法只利用当前和过去的局部信息，一旦长时间没有可靠 LOS 测距，IMU 漂移会导致估计偏离，后续正常测距也难以恢复。因此论文选择 smoothing/factor graph，保留较长时间窗口，允许新测量修正过去状态。
+
+\section{核心观点：NLOS 测距误差是单边长尾}
+
+这篇论文最重要的建模洞察是：
+
+\begin{center}
+\textbf{真实距离是最短路径，NLOS 测距通常只会把距离测长，而不是对称地测短。}
+\end{center}
+
+因此使用普通 Gaussian、Huber 或对称 Cauchy 都不够贴合物理过程。论文把 range measurement likelihood 建模成两种情况的混合：
+
+\begin{itemize}
+  \item LOS：测距误差近似高斯，标准差约 0.1--0.2 m。
+  \item NLOS：误差为非负、重尾，论文使用 half-Cauchy 分布。
+\end{itemize}
+
+NLOS half-Cauchy 的形式可写作：
+
+\[
+p(r'-\bar r\mid m=1)\sim
+\frac{2}{\pi\gamma\left(1+\left((r'-\bar r)/\gamma\right)^2\right)},
+\quad r'-\bar r\ge 0.
+\]
+
+其中 \(r'\) 是测量距离，\(\bar r\) 是真实距离，\(\gamma\) 是尺度参数。直觉上，小 NLOS 误差常见，大 NLOS 误差也可能发生，且方向主要是正偏差。
+
+\section{IMU 模型}
+
+论文使用标准 strapdown IMU 模型：
+
+\[
+\dot R_t=R_t[\omega_t]_\times,\quad
+\dot V_t=g+R_t a_t,\quad
+\dot X_t=V_t.
+\]
+
+IMU bias 包括加速度计 bias 和陀螺仪 bias：
+
+\[
+b_t=[b_t^a,b_t^g]^T.
+\]
+
+bias 被建模为一阶 Gauss-Markov 随机过程，并在因子图中通过 bias constraint factor 连接相邻时刻。
+
+IMU 不直接逐点加入优化，而是使用 IMU preintegration，在两个 range timestamp 之间把高频 IMU 累积成一个预积分因子。这是视觉惯性/惯性导航中非常常见的做法，可以避免每个 IMU 样本都引入一个状态节点。
+
+\section{因子图模型}
+
+状态包括：
+
+\begin{itemize}
+  \item 每个 range 时刻的设备位姿 \(R_i,X_i\)；
+  \item 速度 \(V_i\)；
+  \item IMU bias \(b_i\)；
+  \item UWB anchor 位置 \(A_j\)，这些位置有先验。
+\end{itemize}
+
+因子包括：
+
+\begin{itemize}
+  \item prior factor：初始状态与 anchor 先验；
+  \item IMU preintegration factor：连接相邻状态；
+  \item IMU bias factor：约束 bias 漂移；
+  \item range factor：设备到 anchor 的距离观测，使用非对称鲁棒噪声模型。
+\end{itemize}
+
+数据流如下：
+
+\begin{lstlisting}
+High-rate IMU (~800 Hz)
+  -> preintegration between range timestamps
+
+UWB SS-TWR range (1-40 Hz)
+  -> range factor to anchors
+
+Initial 10 s:
+  -> batch factor graph optimization
+  -> initialize iSAM2
+
+Online:
+  -> add preintegration and range factors
+  -> D-iSAM2 incremental optimization
+  -> pose estimates at UWB rate
+  -> IMU extrapolation for high-rate pose
+\end{lstlisting}
+
+\section{D-iSAM2：给 iSAM2 加简化 trust region}
+
+iSAM2 依赖类似 Gauss-Newton 的线性化更新，在强非线性或条件数差时会不稳定。论文提出 D-iSAM2，本质是在 iSAM2 更新里加入类似 Levenberg-Marquardt 的 damping：
+
+\[
+(J^TJ+\lambda I)\delta=J^Tz.
+\]
+
+可以理解为给变量加一个特殊因子，误差为 0，但 Jacobian 为 \(\sqrt{\lambda}I\)。若非线性误差下降，则减小 \(\lambda\)；若不下降，则增大 \(\lambda\) 并重试。论文只调整最新变量的 trust region 半径，避免全局重分解 Bayes tree，保持增量效率。
+
+\section{实验与结果}
+
+实验硬件包括 Project Aria 设备上的 IMU 和 DWM3000 UWB 模块，IMU 频率约 800 Hz，UWB 最多 4 个 anchor，每个 anchor 10 Hz，总 range 最高 40 Hz。实验环境为 \(30\text{ m}\times50\text{ m}\) 真实办公室，7 次轨迹，每次 1--3 分钟、50--130 m。
+
+主要结果：
+
+\begin{itemize}
+  \item 40 Hz range 下，Proposed + D-iSAM2 多数 run 的平均/最大 3D APE 优于 Gaussian、Huber、Cauchy 等基线。
+  \item 在 1 Hz range 下，Huber 多数序列发散；Gaussian 不发散但误差大；Proposed 仍能保持相对稳定。
+  \item D-iSAM2 平均更新耗时约 19.21 ms，接近 vanilla iSAM2 的 21.33 ms，显著快于 RISE 的 66.85 ms。
+  \item 论文宣称真实办公室平均绝对精度约 0.3 m，并且 range 降到 1 Hz 仍可保持可用精度。
+\end{itemize}
+
+\section{对 Go2 项目的可借鉴方法}
+
+本项目当前以 RSSI/IMU 为主，但这篇论文提供了很重要的建模思想：
+
+\begin{enumerate}
+  \item \textbf{无线测量误差不要默认高斯。} RSSI、UWB、WiFi FTM、BLE 都会有遮挡和多径，异常值往往具有偏置和长尾。
+  \item \textbf{IMU 是低频无线测量之间的桥。} RSSI 或 WiFi scan 可能只有 1 Hz，Go2 IMU/odom 可提供高频运动先验。
+  \item \textbf{在线估计要允许回看过去。} 如果只做 EKF，错误 RSSI 峰值可能把状态拉偏；固定滞后平滑或因子图能用后续观测修正过去。
+  \item \textbf{异常值模型可从 half-Cauchy 思路迁移。} 对 RSSI 来说异常方向不一定是“距离测长”，但可以建模为 heavy-tailed likelihood 或 switchable factor。
+\end{enumerate}
+
+一个适合 Go2 的简化因子图可写成：
+
+\[
+x_k=[s_k,\dot s_k,b_k],
+\]
+
+其中 \(s_k\) 是路径进度，\(\dot s_k\) 是沿路径速度，\(b_k\) 是 RSSI bias 或设备偏置。因子包括：
+
+\begin{itemize}
+  \item odom/IMU motion factor：约束 \(s_{k+1}-s_k\)；
+  \item RSSI fingerprint factor：约束当前 RSSI 与 radio map 的匹配；
+  \item robust factor：对多径/遮挡 RSSI 使用长尾核；
+  \item monotonic factor：若实验为单向路径，约束 \(s\) 不后退或限制最大跳变。
+\end{itemize}
+
+\chapter{论文三：SLAM 辅助 WiFi RSSI 指纹数据集构建与 DNN 定位}
+
+\section{基本信息}
+
+\begin{itemize}
+  \item 论文：\emph{An Adaptive Indoor Localization Approach Using WiFi RSSI Fingerprinting with SLAM-Enabled Robotic Platform and Deep Neural Networks}
+  \item 文件：\file{code/paper/2407.09242v2.pdf}
+  \item 主题：WiFi 指纹、SLAM Toolbox、ROS2、机器人自动采集、DTW 时间对齐、DNN 室内定位。
+\end{itemize}
+
+\section{研究背景}
+
+WiFi 指纹定位通常分成两个阶段：
+
+\begin{itemize}
+  \item offline：在环境中采集不同位置的 WiFi RSSI，构建 fingerprint map；
+  \item online：未知位置设备扫描 WiFi，把 RSSI 输入模型，估计位置。
+\end{itemize}
+
+瓶颈在 offline 阶段。传统方法要人工在网格点逐点采样并记录位置，耗时、低密度、难更新。环境变化后，指纹数据集失效，重新采集代价高。论文提出用带 LiDAR/IMU/轮速计的 ROS2 机器人，通过 SLAM 自动获得机器人位姿，再把 WiFi 扫描与 SLAM 位姿对齐，自动生成稠密 RSSI 指纹数据集。
+
+\section{系统模型}
+
+系统由四部分组成：
+
+\begin{enumerate}
+  \item 商用移动机器人平台：Yahboom Rosmaster X3，Jetson Orin Nano，2D LiDAR，Intel 8265 WiFi，IMU，编码器，RGB-D 相机。
+  \item ROS2 数据采集程序：Python controller + FastAPI web interface，控制 survey 开始/停止，记录 ROS2 topics。
+  \item SLAM Toolbox：订阅 odom 与 LiDAR scan，输出 map、tf 和机器人在 map 中的位姿。
+  \item DNN 定位模型：输入所有 AP 的 RSSI 向量，输出二维位置 \((x,y)\)。
+\end{enumerate}
+
+\section{数据处理}
+
+这篇论文最值得本项目借鉴的是数据处理流程。
+
+\subsection{WiFi 扫描}
+
+WiFi 扫描频率约 1 Hz。论文为了减少扫描间隔，选择 1、6、11 这几个非重叠且常用的 WiFi 信道，减少无效扫描时间。
+
+每个 WiFi scan 包含多个 AP 的 RSSI。最终 CSV 格式为：
+
+\begin{lstlisting}
+Timestamp, X_Pos, Y_Pos, MAC1, MAC2, ..., MACN
+1707935831.6001, 0.0000, 0.0000, 66.0, ..., NaN
+1707935832.5993, 0.0026, 0.0034, 66.0, ..., NaN
+\end{lstlisting}
+
+注意论文中 RSSI 看起来以正数存储，训练前对缺失 AP 填 \(-100\) dB，表示极弱信号。
+
+\subsection{SLAM 位姿}
+
+机器人通过 wheel encoder + IMU 给出 odom，SLAM Toolbox 用 2D LiDAR scan matching 修正 odom 漂移，并输出 map frame 下的机器人位姿。这个位姿作为 WiFi 指纹的标签。
+
+\subsection{DTW 时间对齐}
+
+WiFi scan 和位姿数据频率不同：WiFi 约 1 Hz，pose/odom 可达 100 Hz，而且开始时间不同。论文使用 Dynamic Time Warping (DTW) 对齐两条时间序列。DTW 通过动态规划寻找最小累计距离路径，允许时间轴拉伸或压缩。
+
+从工程上看，DTW 的作用是：
+
+\begin{itemize}
+  \item 给每个 WiFi scan 找到最合理的机器人位姿；
+  \item 比简单最近时间戳匹配更能处理采样不均匀或启动延迟；
+  \item 但在实时系统中，若时间戳准确，近邻匹配或插值通常更简单。
+\end{itemize}
+
+\section{DNN 模型}
+
+模型输入维度等于实验中检测到的 AP 数量。输出维度为 2，对应 map 中的 \(x,y\)。网络结构：
+
+\begin{itemize}
+  \item layer sizes：256, 128, 32, 2；
+  \item activation：前三层 ReLU，输出层 Linear；
+  \item optimizer：Adam；
+  \item mini-batch size：32；
+  \item early stopping patience：5；
+  \item 损失函数文字中提到 MAE，表格中写 MSE，论文这里存在不一致。
+\end{itemize}
+
+模型训练后，在线阶段只需要扫描当前 WiFi，按固定 AP 顺序组成向量，缺失 AP 填弱信号值，输入 DNN 得到位置估计。
+
+\section{实验与结果}
+
+实验环境是约 \(4\text{ m}\times10\text{ m}\) 的办公室，面积 40 平方米，检测到 38 个 AP。论文构建了两种人工 ground truth 网格：0.99 m 和 0.66 m 间距，用来验证机器人自动采集结果。
+
+主要结果：
+
+\begin{itemize}
+  \item 自动方法采集 320 个 reference points，耗时 320 s，约 1 RP/s，密度 7.27 RP/m\(^2\)。
+  \item baseline coarse 采集 23 个点，耗时 656 s，约 0.035 RP/s。
+  \item baseline dense 采集 47 个点，耗时 891 s，约 0.052 RP/s。
+  \item 自动方法比传统方法构建超过 6 倍密度的数据集，时间效率约 19 倍。
+  \item 定位精度 RMSE 0.27 m，MAE 0.19 m，优于表中对比方法。
+  \item 使用一半训练数据时误差增加约 60\%，使用四分之一时误差增加约 160\%，说明指纹点密度非常关键。
+\end{itemize}
+
+\section{数据流总结}
+
+\begin{lstlisting}
+Robot survey:
+  ROS2 controller starts recording
+  -> LiDAR + encoder + IMU
+  -> SLAM Toolbox produces map pose
+  -> WiFi scanner records AP RSSI at ~1 Hz
+  -> ROS bag / logs
+  -> DTW aligns WiFi scans with SLAM poses
+  -> CSV fingerprint dataset
+  -> DNN training
+  -> online WiFi localization
+\end{lstlisting}
+
+\section{对 Go2 项目的可借鉴方法}
+
+这篇论文和你的项目最直接相关，因为你已经有 Go2、ROS2、RSSI/IMU 采集和路径实验。建议照搬它的数据集思想，但按你的项目目标做改造：
+
+\begin{enumerate}
+  \item 不一定先做二维 \((x,y)\)，可以先做路径进度 \(s\)。
+  \item 用 Nav2/SLAM/odom 生成每个 RSSI window 的标签：\((s,x,y,\theta)\)。
+  \item CSV 推荐格式：
+\end{enumerate}
+
+\begin{lstlisting}
+timestamp,s,x,y,yaw,vx,wz,ax,ay,az,gx,gy,gz,
+beacon_1_mean,beacon_1_std,...,beacon_N_mean,beacon_N_std
+\end{lstlisting}
+
+与当前项目中的 \file{README.md} 和 baseline 格式相比，可以保留已有 \code{beacon_*_mean/std}，但加入 SLAM/odom 生成的 \code{x,y,yaw,s}，这样同一份数据可以训练：
+
+\begin{itemize}
+  \item \(RSSI\rightarrow s\) 的路径定位模型；
+  \item \(RSSI\rightarrow (x,y)\) 的二维定位模型；
+  \item \(RSSI+IMU\rightarrow s\) 的序列模型；
+  \item GP/HGP radio map baseline。
+\end{itemize}
+
+\chapter{论文四：Radar Teach and Repeat}
+
+\section{基本信息}
+
+\begin{itemize}
+  \item 论文：\emph{Radar Teach and Repeat: Architecture and Initial Field Testing}
+  \item 文件：\file{code/paper/2409.10491v1.pdf}
+  \item 主题：FMCW 扫描雷达、Teach-and-Repeat、radar-gyro odometry、ICP、local submap、MPC、长期导航。
+\end{itemize}
+
+\section{研究背景}
+
+移动机器人在巡逻、农业、矿山、校园 shuttle、重复巡检等任务中，经常沿固定路线反复行驶。Teach-and-Repeat (T\&R) 的思想是：先人工开一遍安全路线并建局部地图，之后机器人重复这条路线。相比全局 SLAM，T\&R 不强制构建全局一致大地图，而是用沿路径串联的局部子图，适合长期重复任务。
+
+传统 T\&R 常用视觉或 LiDAR：
+
+\begin{itemize}
+  \item 视觉怕光照、黑暗、视角变化；
+  \item LiDAR 不怕光照，但容易受雪、雾、尘、烟、植被等影响；
+  \item GPS 在树冠、室内、城市峡谷下不可靠。
+\end{itemize}
+
+FMCW 雷达波长更长，对尘雾雪烟更鲁棒，且量测距离远，适合恶劣环境长期导航。论文实现了完整 closed-loop Radar Teach-and-Repeat，声称是首次用 radar 作为唯一外感知传感器在 off-road 环境中闭环重复路线。
+
+\section{系统模型}
+
+传感器：
+
+\begin{itemize}
+  \item Navtech RAS3 2D scanning radar，4 Hz；
+  \item single-axis yaw gyro，100 Hz；
+  \item RTK GPS 仅用于评估；
+  \item Ouster LiDAR 用作对比基线，不用于 radar repeat。
+\end{itemize}
+
+系统分为 teach phase 和 repeat phase。
+
+\section{Teach Phase}
+
+\subsection{雷达点云提取}
+
+雷达原始数据是极坐标 radar image。论文使用改造的 BFAR detector，在每个 azimuth 中提取关键点。检测点经过聚类/质心处理后转为 2D Cartesian point cloud，用于 ICP odometry 和地图构建。
+
+\subsection{Radar-gyro 连续时间 ICP 里程计}
+
+每个雷达 scan 到来时，系统优化一个包含姿态和速度的状态：
+
+\[
+x_i=\{T_i,\varpi_i\}.
+\]
+
+代价函数包括三类误差：
+
+\[
+J_{\mathrm{odom,radar}}
+=
+\frac{1}{2}e_{\mathrm{prior}}^TQ_{\mathrm{prior}}^{-1}e_{\mathrm{prior}}
++
+\sum_{j=1}^{M}\frac{1}{2}e_{\mathrm{odom},j}^TR_j^{-1}e_{\mathrm{odom},j}
++
+\frac{1}{2}e_{\mathrm{yaw}}^TR_{\mathrm{yaw}}^{-1}e_{\mathrm{yaw}}.
+\]
+
+其中：
+
+\begin{itemize}
+  \item motion prior 假设短时间内近似恒速；
+  \item radar ICP error 做当前 scan 与滑动地图/局部点云的点到点匹配；
+  \item yaw preintegration factor 聚合两个 radar scan 之间的陀螺仪 yaw rate。
+\end{itemize}
+
+这里和 2309 论文有共同点：低频外部观测之间，用高频惯性测量补足运动约束。
+
+\subsection{Mapping}
+
+人工 teach 时，系统把一段窗口内的雷达点云合并成 local submap。当机器人移动距离或转角超过阈值时创建新 submap。相邻 submap 通过相对里程计连接，形成沿路径的 pose graph。这个图不追求全局一致性，而追求局部可重复定位。
+
+\section{Repeat Phase}
+
+\subsection{High-rate gyro odometry}
+
+雷达只有 4 Hz，直接用于控制太慢。论文在两个雷达 scan 之间，用 100 Hz gyro 解一个小优化问题，提供高频 odometry。新雷达 scan 到来后，再用更准的 ICP odometry 替换高频外推结果。
+
+这对 Go2 很重要：RSSI/WiFi scan 甚至可能只有 1 Hz，更需要 IMU/odom 在中间补足连续状态。
+
+\subsection{Localization ICP}
+
+repeat 阶段，当前雷达 scan 与 teach 阶段保存的最近 local submap 做 ICP，求机器人当前 frame 到 teach path local map frame 的相对位姿。代价函数由 pose prior 和点云 ICP 误差组成。
+
+\subsection{MPC 闭环控制}
+
+Localization 结果送入 MPC。MPC 以 teach path 上未来 \(K\) 个目标位姿为参考，优化线速度 \(v_k\) 和角速度 \(\omega_k\)，满足：
+
+\begin{itemize}
+  \item unicycle motion model；
+  \item 速度上下限；
+  \item corridor constraint，即机器人不能偏离 teach path 太远；
+  \item 若约束不可行，机器人停下等待人工干预。
+\end{itemize}
+
+论文中 corridor 最大 lateral deviation 设置为 50 cm。
+
+\section{实验与结果}
+
+平台为 Clearpath Warthog UGV。四条路线包括 Parking Loop、Mars Dome Loop、Grassy Loop、Woody Loop，总 teach 距离 1276 m，LiDAR repeat 8.1 km，Radar repeat 11.8 km。
+
+主要结果：
+
+\begin{itemize}
+  \item RT\&R 在四个环境中 autonomy rate 为 100\%，无人干预完成 11.8 km。
+  \item Parking Loop radar lateral RMSE 5.6 cm，最大误差 21.7 cm。
+  \item Mars Dome radar lateral RMSE 7.5 cm，最大误差 24.0 cm。
+  \item Grassy Loop radar lateral RMSE 12.1 cm，最大误差 43.8 cm。
+  \item LiDAR T\&R 在所有路线更准，但 radar 在结构较好的区域接近 LiDAR。
+  \item Woody Loop 树冠导致 GPS ground truth 不可靠，无法计算 GPS-measured RMSE，但内部估计仍显示可重复行驶。
+\end{itemize}
+
+\section{局限与经验}
+
+论文讨论了 radar 的工程难点：
+
+\begin{itemize}
+  \item 雷达点云会出现 radial artifacts，也就是以传感器为中心的稀疏环形假点。
+  \item 场景几何稀疏时，ICP 可能错误对齐这些假点，导致 yaw drift。
+  \item yaw 误差会和控制器形成坏反馈，机器人可能逐渐偏离路径。
+  \item 加入 gyro yaw rate 对抑制 heading drift 很关键。
+  \item 未来需要更好的点特征提取和 Doppler correction。
+\end{itemize}
+
+\section{对 Go2 项目的可借鉴方法}
+
+如果你的 Go2 要做固定路线 RSSI 采集、巡检或自动回充，T\&R 思想非常适合：
+
+\begin{lstlisting}
+Teach:
+  human drives Go2 along safe route
+  -> record odom/IMU/RSSI/pointcloud/camera
+  -> build route map and path coordinate s
+
+Repeat:
+  localize to taught route
+  -> estimate path progress s and lateral error e
+  -> waypoint/Nav2/MPC controls Go2
+  -> RSSI model corrects drift or detects route segment
+\end{lstlisting}
+
+短期不用上雷达，也可以借鉴架构：
+
+\begin{itemize}
+  \item 用 LiDAR/point cloud 或视觉标签替代 radar submap；
+  \item 用 Go2 IMU/odom 替代 gyro-only high-rate odometry；
+  \item 用 RSSI fingerprint 判断当前处于路线哪一段；
+  \item 用 waypoint follower 或 Nav2 controller 做 repeat 控制。
+\end{itemize}
+
+\chapter{结论}
+
+四篇论文给本项目的核心启发可以压缩成一句话：
+
+\begin{center}
+\textbf{先用 SLAM/Nav2/odom 把 RSSI 数据采好、标准化；再用 RSSI 模型提供低成本位置线索；最后用 IMU/odom/路径约束把低频、噪声大的无线观测融合成连续可控的机器人状态。}
+\end{center}
+
+最推荐的近期实现路径是：
+
+\begin{enumerate}
+  \item 按 2407 论文思路，完成 Go2 自动/半自动 RSSI 指纹数据采集与标签生成。
+  \item 在现有 KNN/DNN baseline 外，增加 2307 式一维 HGP 路径进度搜索。
+  \item 用 2309 的鲁棒观测思想，为 RSSI 异常值加入 heavy-tailed loss 或跳变约束。
+  \item 若目标扩展到自动回充或固定巡检，借鉴 2409 的 Teach-and-Repeat，将路线表示为 \(s,e,\theta_e\) 并接入 waypoint/Nav2 控制。
+\end{enumerate}
+
+\end{document}

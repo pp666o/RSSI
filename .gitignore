@@ -6,11 +6,33 @@ __pycache__/
 code/build_rssi/
 code/unitree_sdk2/build/
 code/unitree_sdk2/build_go2/
+code/ros2_ws/build/
+code/ros2_ws/install/
+code/ros2_ws/log/
+code/ros2_ws/test_logs/
+code/.ros_log_test/
 
 # Large local reference/material bundles kept out of normal Git history.
 code/paper/
 code/unitree_sdk2/
 code/unitree_sdk/
+code/navigation2/
+code/IsaacLab/
+code/isaac-go2-ros2/
+code/UnitreecameraSDK/
+code/unitree_rl_gym/
+
+# Generated caches and tool state
+**/__pycache__/
+*.pyc
+*.pyo
+*.fdb_latexmk
+*.fls
+*.aux
+*.log
+*.out
+*.toc
+*.xdv
 
 # Migration payload: keep only portable scripts and small RSSI binaries.
 code/bt_migrate_pack/*

@@ -1,0 +1,1264 @@
+% !TeX program = xelatex
+\documentclass[UTF8,11pt,a4paper,openany]{ctexrep}
+
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage[most]{tcolorbox}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc}
+
+\definecolor{NavBlue}{HTML}{1F6FEB}
+\definecolor{GoGreen}{HTML}{238636}
+\definecolor{WarnOrange}{HTML}{B7791F}
+\definecolor{CodeBg}{HTML}{F6F8FA}
+\definecolor{FrameGray}{HTML}{D0D7DE}
+\definecolor{TextGray}{HTML}{57606A}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=NavBlue,
+  citecolor=NavBlue,
+  urlcolor=NavBlue,
+  pdftitle={Nav2 使用教程：面向 Unitree Go2 RSSI 机器狗项目},
+  pdfauthor={Go2 RSSI Project}
+}
+
+\setlist[itemize]{leftmargin=2em,itemsep=0.2em,topsep=0.4em}
+\setlist[enumerate]{leftmargin=2em,itemsep=0.2em,topsep=0.4em}
+\renewcommand{\arraystretch}{1.18}
+\setlength{\tabcolsep}{4pt}
+\emergencystretch=2em
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\urlstyle{same}
+
+\lstdefinestyle{codestyle}{
+  backgroundcolor=\color{CodeBg},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  rulecolor=\color{FrameGray},
+  xleftmargin=0.4em,
+  xrightmargin=0.4em,
+  aboveskip=0.8em,
+  belowskip=0.8em,
+  showstringspaces=false,
+  tabsize=2
+}
+\lstdefinelanguage{yaml}{
+  keywords={true,false,null,y,n},
+  keywordstyle=\color{NavBlue}\bfseries,
+  basicstyle=\ttfamily\small,
+  sensitive=false,
+  comment=[l]{\#},
+  morecomment=[l]{---},
+  morestring=[b]',
+  morestring=[b]"
+}
+\lstdefinelanguage{bash}{
+  keywords={cd,source,export,if,then,else,elif,fi,for,do,done,case,esac,function,exec,true,false},
+  keywordstyle=\color{NavBlue}\bfseries,
+  basicstyle=\ttfamily\small,
+  sensitive=true,
+  comment=[l]{\#},
+  morestring=[b]',
+  morestring=[b]"
+}
+\lstset{style=codestyle}
+
+\newtcolorbox{notebox}[1]{
+  enhanced,
+  breakable,
+  colback=blue!3,
+  colframe=NavBlue!60,
+  title=#1,
+  fonttitle=\bfseries,
+  boxrule=0.6pt,
+  arc=2mm,
+  left=1mm,
+  right=1mm,
+  top=1mm,
+  bottom=1mm
+}
+
+\newtcolorbox{warnbox}[1]{
+  enhanced,
+  breakable,
+  colback=orange!6,
+  colframe=WarnOrange!75,
+  title=#1,
+  fonttitle=\bfseries,
+  boxrule=0.6pt,
+  arc=2mm,
+  left=1mm,
+  right=1mm,
+  top=1mm,
+  bottom=1mm
+}
+
+\newcommand{\code}[1]{\nolinkurl{#1}}
+\newcommand{\topic}[1]{\nolinkurl{#1}}
+\newcommand{\param}[1]{\nolinkurl{#1}}
+\newcommand{\file}[1]{\nolinkurl{#1}}
+\newcommand{\pkg}[1]{\nolinkurl{#1}}
+\newcommand{\actionname}[1]{\nolinkurl{#1}}
+
+\title{
+  \Huge Nav2 使用教程\\
+  \Large 面向 Unitree Go2 RSSI 机器狗项目的对照学习手册
+}
+\author{Go2 RSSI / Nav2 Integration Notes}
+\date{2026-06-15}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\chapter*{阅读方式}
+\addcontentsline{toc}{chapter}{阅读方式}
+
+这份教程不是泛泛介绍 Nav2，而是按本项目当前真实接线来写：仓库里已经有 \pkg{go2_nav2_bridge}、\pkg{nav2_straight_path_client}、\pkg{go2_direct_straight_controller}、两套 Nav2 参数文件，以及用于 RSSI/IMU 采集的脚本。因此本文的主线是：
+
+\begin{center}
+  \textbf{先用总体视角理解 Nav2，再逐个模块对照本项目中正在启动的节点、话题、动作、参数和调参入口。}
+\end{center}
+
+建议初学时按下面顺序读：
+
+\begin{enumerate}
+  \item 第 \ref{chap:big-picture} 章先建立 Nav2 的总图。
+  \item 第 \ref{chap:project-wiring} 章对照本项目的 Go2 系统，理解现有数据流。
+  \item 第 \ref{chap:modules} 章查模块：不要求一次背完，遇到参数再回来查。
+  \item 第 \ref{chap:params} 章跟着 YAML 表格调参。
+  \item 第 \ref{chap:experiments} 章按低风险顺序做实验。
+  \item 第 \ref{chap:debugging} 章排错。
+\end{enumerate}
+
+\begin{notebox}{版本说明}
+当前文档建议在外部电脑使用 Ubuntu 22.04 + ROS 2 Humble 运行 Nav2；Ubuntu 24.04 可考虑 Jazzy。本文把本项目里的 \file{ros2_ws/src/go2_nav2_bridge} 作为实现基准。Nav2 官方文档用于解释模块边界和通用参数，但不同 ROS 2/Nav2 发行版的参数名称和默认行为可能有细微差异。实际运行时以已安装的发行版和本项目 YAML 为准。
+\end{notebox}
+
+\chapter{从总体视角看 Nav2}
+\label{chap:big-picture}
+
+\section{Nav2 解决的不是一个问题，而是一条导航流水线}
+
+对新手来说，Nav2 容易显得像一个很大的黑盒。其实它更像一条可插拔流水线。给定一个目标，Nav2 通常会做这些事：
+
+\begin{enumerate}
+  \item \textbf{知道自己在哪里}：由里程计、TF、AMCL、SLAM、机器人状态估计等提供 \topic{map -> odom -> base_link} 或至少 \topic{odom -> base_link}。
+  \item \textbf{知道周围有什么}：由激光、点云、深度相机等更新 costmap。
+  \item \textbf{决定高层任务怎么走}：BT Navigator 运行行为树，管理规划、跟踪、等待、恢复等步骤。
+  \item \textbf{规划路径}：Planner Server 调用规划器插件，例如 NavFn、Theta*、SmacPlanner2D。
+  \item \textbf{平滑路径}：Smoother Server 可选，用于让路径更适合机器人执行。
+  \item \textbf{跟踪路径}：Controller Server 调用控制器插件，例如 DWB、Regulated Pure Pursuit、MPPI，输出速度命令。
+  \item \textbf{让速度命令更像真实机器人能执行的命令}：Velocity Smoother 做速度、加速度限制。
+  \item \textbf{最后一道安全检查}：Collision Monitor 可以在近距离障碍物进入危险区域时减速或停止。
+  \item \textbf{交给底盘}：移动底盘或桥接节点订阅 \topic{/cmd_vel}，执行真实运动。
+\end{enumerate}
+
+本项目已经把最后一步换成了一个真实硬件桥接节点：Nav2 输出 ROS 2 标准速度命令，\pkg{go2_nav2_bridge} 把速度命令转换成 Unitree SDK2 的 \code{SportClient::Move(vx, vy, wz)}。
+
+\section{Nav2 与本项目之间的关键分界线}
+
+本项目的研究主线是 RSSI/IMU/odom 辅助定位与路径进度估计；Nav2 在当前阶段更像“运动后端”和“避障/安全基线”。这条分界线很重要：
+
+\begin{itemize}
+  \item RSSI 相关算法不要把 Nav2 定位结果当成主输入，否则研究贡献会混到 Nav2 的定位能力里。
+  \item 可以记录 Nav2 输出、里程计、costmap 和路径作为调试或对照信号。
+  \item 直线采集优先使用 \code{MOVE_BACKEND=direct}，因为它更可控、更适合做 RSSI 数据集。
+  \item 当需要比较局部规划、障碍物保护、路径绕行时，再使用 \code{MOVE_BACKEND=nav2}。
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  node distance=11mm and 15mm,
+  every node/.style={font=\small},
+  box/.style={draw,rounded corners=1mm,align=center,minimum width=30mm,minimum height=10mm,fill=blue!4},
+  go/.style={draw,rounded corners=1mm,align=center,minimum width=34mm,minimum height=10mm,fill=green!6},
+  safety/.style={draw,rounded corners=1mm,align=center,minimum width=32mm,minimum height=10mm,fill=orange!8},
+  arr/.style={-{Latex[length=2mm]},thick},
+  cmdlabel/.style={font=\scriptsize,fill=white,inner sep=1pt}
+]
+  \node[box] (goal) {目标\\Goal / Path};
+  \node[box,right=of goal] (bt) {BT Navigator\\任务编排};
+  \node[box,right=of bt] (planner) {Planner\\全局路径};
+  \node[box,below=of planner] (controller) {Controller\\局部跟踪};
+  \node[safety,left=of controller] (smooth) {Velocity\\Smoother};
+  \node[safety,left=of smooth] (collision) {Collision\\Monitor};
+  \node[go,left=of collision] (bridge) {Go2 Bridge\\SportClient::Move};
+  \node[go,below=of bridge] (robot) {Unitree Go2\\真实运动};
+  \node[box,below=of controller] (costmap) {Costmaps\\点云/障碍物};
+  \node[go,below=of costmap] (sensors) {Go2 odom/IMU\\pointcloud};
+
+  \draw[arr] (goal) -- (bt);
+  \draw[arr] (bt) -- (planner);
+  \draw[arr] (planner) -- (controller);
+  \draw[arr] (controller) -- node[cmdlabel,above=1.6mm]{\topic{/cmd_vel_nav}} (smooth);
+  \draw[arr] (smooth) -- node[cmdlabel,above=1.6mm]{\topic{/cmd_vel_smoothed}} (collision);
+  \draw[arr] (collision) -- node[cmdlabel,above=1.6mm]{\topic{/cmd_vel}} (bridge);
+  \draw[arr] (bridge) -- (robot);
+  \draw[arr] (robot) -- (sensors);
+  \draw[arr] (sensors) -- (costmap);
+  \draw[arr] (costmap) -- (planner);
+  \draw[arr] (costmap) -- (controller);
+\end{tikzpicture}%
+}
+\caption{Nav2 在 Go2 项目中的推荐视角：Nav2 负责生成和保护运动命令，Go2 桥接节点负责硬件执行，RSSI/IMU 负责研究信号采集。}
+\end{figure}
+
+\section{本项目的三种运动后端}
+
+脚本 \file{scripts/go2_collect_straight_line_nav2.sh} 已经定义了三种后端：
+
+\begin{longtable}{L{0.18\textwidth}L{0.36\textwidth}L{0.36\textwidth}}
+\toprule
+后端 & 实际启动/调用 & 适合做什么 \\
+\midrule
+\code{direct} & 启动 \pkg{go2_nav2_bridge}，再运行 \pkg{go2_direct_straight_controller}，持续发布 \topic{/cmd_vel}，按 \topic{/go2/path_s}、\topic{/odom} 或时间停止。 & RSSI 直线采集、最低风险硬件验证、标定速度与路径进度。 \\
+\code{cmd_vel} & 只启动桥接节点，用 \code{ros2 topic pub} 按时间发布 \topic{/cmd_vel}。 & 最小化链路测试，确认桥接节点能让机器狗动起来。 \\
+\code{nav2} & 启动 controller、velocity smoother、collision monitor，可选 planner、BT navigator。运行 \pkg{nav2_straight_path_client} 发送 FollowPath、ComputePathToPose 或 NavigateToPose。 & 障碍物实验、局部规划实验、与 Nav2 控制器/避障能力对照。 \\
+\bottomrule
+\end{longtable}
+
+\chapter{本项目的 Go2 系统如何接入 Nav2}
+\label{chap:project-wiring}
+
+\section{项目目录对照}
+
+本文用到的关键文件如下：
+
+\begin{longtable}{L{0.95\textwidth}}
+\toprule
+文件与作用 \\
+\midrule
+\textbf{\file{GO2_NAV2_INTEGRATION.md}}\\
+本项目 Go2 + Nav2 集成策略的总说明，明确 direct 是稳定采集路径，Nav2 是实验性避障后端。 \\[0.35em]
+\textbf{\file{scripts/go2_collect_straight_line_nav2.sh}}\\
+一键采集脚本，负责启动 RSSI、IMU、Go2 bridge、Nav2 或 direct controller，并记录运行目录。 \\[0.35em]
+\textbf{\file{scripts/go2_diagnose_nav2_perception.sh}}\\
+不运动情况下启动 Nav2 感知链路，检查点云、自过滤、ROI、costmap 前置条件。 \\[0.35em]
+\textbf{\file{ros2_ws/src/go2_nav2_bridge/launch/go2_nav2_straight.launch.py}}\\
+启动 Go2 bridge，并按参数决定是否启动 Nav2 controller、planner、BT navigator、velocity smoother、collision monitor。 \\[0.35em]
+\textbf{\file{ros2_ws/src/go2_nav2_bridge/params/go2_nav2_minimal_controller_params.yaml}}\\
+direct/minimal 场景参数，点云关闭，速度自由度受限，适合直线采集。 \\[0.35em]
+\textbf{\file{ros2_ws/src/go2_nav2_bridge/params/go2_nav2_straight_params.yaml}}\\
+Nav2 obstacle 场景参数，点云打开，使用 voxel costmap、DWB、velocity smoother、collision monitor。 \\[0.35em]
+\textbf{\file{ros2_ws/src/go2_nav2_bridge/src/go2_nav2_bridge.cpp}}\\
+Go2 与 ROS 2/Nav2 的硬件桥：订阅 Unitree DDS，发布 \topic{/odom}、\topic{/tf}、\topic{/go2/imu}、\topic{/go2/path_s}、\topic{/go2/pointcloud}，订阅 \topic{/cmd_vel} 并调用 \code{SportClient::Move}。 \\[0.35em]
+\textbf{\file{ros2_ws/src/go2_nav2_bridge/src/nav2_straight_path_client.cpp}}\\
+向 Nav2 发送直线路径、规划路径或 NavigateToPose 目标的客户端。 \\[0.35em]
+\textbf{\file{ros2_ws/src/go2_nav2_bridge/src/go2_direct_straight_controller.cpp}}\\
+不依赖 Nav2 Controller 的直接直线控制器。 \\
+\bottomrule
+\end{longtable}
+
+\section{数据流：从 Go2 DDS 到 Nav2，再回到 Go2}
+
+本项目的数据流可以写成两条链。
+
+\subsection{感知与状态链}
+
+\begin{lstlisting}[language=bash]
+Go2 DDS rt/sportmodestate
+  -> go2_nav2_bridge
+  -> /odom
+  -> /tf: odom -> base_link
+  -> /go2/imu
+  -> /go2/path_s
+
+Go2 DDS rt/utlidar/cloud
+  -> go2_nav2_bridge
+  -> /go2/pointcloud
+  -> local_costmap / global_costmap / collision_monitor
+\end{lstlisting}
+
+这条链里，\topic{/odom} 和 \topic{/tf} 让 Nav2 知道机器人当前位置；\topic{/go2/pointcloud} 让 costmap 和 collision monitor 知道障碍物；\topic{/go2/path_s} 是本项目很有价值的路径进度信号，direct controller 和 Nav2 client 都可以用它判断是否走够距离。
+
+\subsection{控制链}
+
+\begin{lstlisting}[language=bash]
+Nav2 FollowPath controller -> /cmd_vel_nav
+velocity_smoother          -> /cmd_vel_smoothed
+collision_monitor          -> /cmd_vel
+go2_nav2_bridge            -> Unitree SportClient::Move(vx, vy, wz)
+\end{lstlisting}
+
+这个 remapping 在 \file{go2_nav2_straight.launch.py} 中完成。这样做很关键：Nav2 controller 原始输出不直接进机器狗，而是先经过速度平滑和碰撞监控。
+
+\section{桥接节点是硬件适配层，不是 Nav2 自身}
+
+\pkg{go2_nav2_bridge} 是本项目最关键的适配层。它完成四类工作：
+
+\begin{enumerate}
+  \item \textbf{Unitree DDS 初始化}：通过 \param{network_interface} 选择机器狗网络接口，并订阅 Unitree DDS 话题。
+  \item \textbf{状态标准化}：把 Go2 的运动状态转换成 ROS 2 标准的 \topic{/odom}、\topic{/tf}、\topic{/go2/imu}。
+  \item \textbf{点云标准化与过滤}：把 Unitree 点云转换为 ROS 2 \code{sensor_msgs/PointCloud2}，可做坐标偏移/旋转、自身过滤、ROI 日志。
+  \item \textbf{速度命令执行}：订阅 \topic{/cmd_vel} 或 \code{TwistStamped}，限幅后调用 \code{SportClient::Move}；超时或点云过期时停止。
+\end{enumerate}
+
+\begin{warnbox}{硬件安全优先级}
+只要使用 \code{MOVE_BACKEND=nav2}，不要先追求“走得远”。先确认 \topic{/go2/pointcloud} 的坐标、局部 costmap、collision monitor 多边形区域都在 RViz 中正确。点云方向错、base frame 错、self filter 过宽，都会让避障看起来正常但实际上危险。
+\end{warnbox}
+
+\chapter{Nav2 主要模块详解}
+\label{chap:modules}
+
+\section{模块总表：先知道每个东西管什么}
+
+\begin{scriptsize}
+\begin{longtable}{L{0.17\textwidth}L{0.28\textwidth}L{0.26\textwidth}L{0.21\textwidth}}
+\toprule
+模块 & 作用 & 常见 API/话题 & 本项目中的状态 \\
+\midrule
+Lifecycle Manager & 管理 Nav2 lifecycle nodes 从 unconfigured 到 active。 & \code{ros2 lifecycle get}；参数 \param{node_names}、\param{autostart}。 & 已用，启动 controller/smoother/collision/planner。 \\
+BT Navigator & 运行行为树，编排规划、控制、恢复行为。 & \actionname{NavigateToPose}\newline \actionname{NavigateThroughPoses}。 & 可选，\param{use_bt_navigator:=true} 时使用。 \\
+Planner Server & 计算全局路径。 & \actionname{ComputePathToPose}\newline \actionname{ComputePathThroughPoses}。 & 可选，\param{use_planner:=true} 或 BT 模式使用。 \\
+Controller Server & 跟踪路径并输出速度。 & \actionname{FollowPath}；输出 \topic{cmd_vel}。 & 当前 Nav2 实验核心，使用 DWB。 \\
+Costmap 2D & 把地图、点云、障碍物转换成代价地图。 & \topic{local_costmap/costmap}、\topic{global_costmap/costmap}。 & 已用 rolling costmap + voxel layer + inflation layer。 \\
+Velocity Smoother & 平滑速度，限制速度/加速度/超时。 & \topic{/cmd_vel_nav} 到 \topic{/cmd_vel_smoothed}。 & 已用。 \\
+Collision Monitor & 近场安全保护，按多边形区域 stop/slowdown。 & 输入点云和速度；输出 \topic{/cmd_vel}。 & 已用，Go2 硬件实验非常重要。 \\
+Behavior Server & 执行恢复动作，如 spin、backup、wait、drive\_on\_heading。 & BT 中调用的行为 action。 & BT 模式可选启动。 \\
+Smoother Server & 对全局路径做几何平滑。 & \actionname{SmoothPath}。 & 当前未启动，可后续用于路径质量对照。 \\
+Map Server / Map Saver & 加载/保存 2D occupancy map。 & \topic{/map}，服务 load/save map。 & 当前 Go2 短距离 odom rolling window 实验不依赖静态地图。 \\
+AMCL & 在已知地图中用粒子滤波做全局定位。 & 订阅 scan/map/odom；发布 \topic{map -> odom}。 & 当前主研究不建议作为 RSSI 输入，可作为参考定位信号。 \\
+Waypoint Follower & 顺序执行多个路点。 & \actionname{FollowWaypoints}。 & 可作为后续 RSSI 路线复现实验接口。 \\
+Route Server & 在路线图/拓扑图上规划路径。 & Route actions/services。 & 后续可用于“走廊/房间拓扑 + RSSI 路径进度”。 \\
+Docking Server & 对接充电桩/停靠点。 & Docking actions。 & 当前无关。 \\
+Simple Commander & Python API 封装 Nav2 action。 & \code{BasicNavigator}。 & 可用于快速写实验脚本，但当前 C++ client 已满足直线实验。 \\
+\bottomrule
+\end{longtable}
+\end{scriptsize}
+
+\section{Nav2 的函数式接口：Action、Service、Topic 怎么看}
+
+Nav2 不是靠一个普通函数调用完成导航，而是靠 ROS 2 action、service、topic 和 lifecycle 状态机协作。可以把 action 理解成“可反馈、可取消、会返回结果的长任务函数”。例如 \actionname{FollowPath} 就像一个异步函数：
+
+\begin{lstlisting}
+FollowPath(path, controller_id, goal_checker_id)
+  -> feedback: distance_to_goal, speed
+  -> result: succeeded / failed / canceled
+\end{lstlisting}
+
+下表把常见 Nav2 模块的“函数式接口”按本项目用途列出来。
+
+\begin{footnotesize}
+\begin{longtable}{L{0.17\textwidth}L{0.23\textwidth}L{0.50\textwidth}}
+\toprule
+模块 & 接口 & 对新手最重要的理解 \\
+\midrule
+BT Navigator & \actionname{NavigateToPose} & 高层导航入口。调用方只给目标位姿，它内部按行为树调用 planner、controller 和 recovery。适合完整导航，不适合初期精细排错。 \\
+BT Navigator & \actionname{NavigateThroughPoses} & 一次给多个目标点，行为树按顺序完成。后续路线复现可以考虑，但当前直线采集不需要。 \\
+Planner Server & \actionname{ComputePathToPose} & 输入起点/终点，输出 \code{nav_msgs/Path}。本项目的 \pkg{nav2_straight_path_client} 在 \param{use_planner=true} 时调用它。 \\
+Controller Server & \actionname{FollowPath} & 输入路径，输出速度命令。本项目当前 Nav2 实验最常用的 action。 \\
+Smoother Server & \actionname{SmoothPath} & 输入路径，输出更平滑的路径。当前没启动；以后路径太折、太贴边时可加入。 \\
+Behavior Server & \actionname{Spin}、\actionname{BackUp}、\actionname{DriveOnHeading}、\actionname{Wait} & 恢复/辅助动作。真实 Go2 上要谨慎打开，尤其是原地转和后退。 \\
+Waypoint Follower & \actionname{FollowWaypoints} & 输入多个 waypoint，逐个执行。适合把 RSSI 路线离散成几个检查点。 \\
+Map Server & load/save map services & 加载或保存静态地图。当前 odom rolling window 实验不用。 \\
+Lifecycle Manager & lifecycle services & configure、activate、deactivate、cleanup。脚本等待的 ``Managed nodes are active'' 就来自这里。 \\
+Velocity Smoother & \topic{/cmd_vel} input/output & 它不是 action，而是速度 topic 过滤器。本项目中输入 \topic{/cmd_vel_nav}，输出 \topic{/cmd_vel_smoothed}。 \\
+Collision Monitor & \topic{/cmd_vel} input/output + sensor topics & 它也不是 action，而是安全过滤器。输入平滑速度和点云，输出最终 \topic{/cmd_vel}。 \\
+\bottomrule
+\end{longtable}
+\end{footnotesize}
+
+\section{Lifecycle Manager：让 Nav2 节点真正 active}
+
+Nav2 很多节点是 lifecycle node。仅仅进程启动不代表可以工作；它们需要 configure 和 activate。Lifecycle Manager 做的就是统一启动这些节点。
+
+\subsection{在本项目中怎么用}
+
+\file{go2_nav2_straight.launch.py} 会启动：
+
+\begin{lstlisting}[language=Python]
+Node(
+  package="nav2_lifecycle_manager",
+  executable="lifecycle_manager",
+  name="lifecycle_manager_navigation",
+  parameters=[params_file],
+)
+\end{lstlisting}
+
+在 \file{go2_nav2_straight_params.yaml} 中：
+
+\begin{lstlisting}[language=yaml]
+lifecycle_manager_navigation:
+  ros__parameters:
+    use_sim_time: false
+    autostart: true
+    node_names: ["planner_server", "controller_server",
+                 "velocity_smoother", "collision_monitor"]
+\end{lstlisting}
+
+\subsection{核心参数}
+
+\begin{longtable}{L{0.26\textwidth}L{0.24\textwidth}L{0.40\textwidth}}
+\toprule
+参数 & 当前值/常见值 & 含义 \\
+\midrule
+\param{use_sim_time} & \code{false} & 真实 Go2 实验必须用真实时间；仿真才用 \code{true}。 \\
+\param{autostart} & \code{true} & 启动后自动 configure/activate 管理节点。 \\
+\param{node_names} & 列表 & 被 lifecycle manager 管理的节点名称。列表里少写了某个 Nav2 节点，该节点可能一直 inactive。 \\
+\bottomrule
+\end{longtable}
+
+\subsection{常用检查}
+
+\begin{lstlisting}[language=bash]
+ros2 lifecycle get /controller_server
+ros2 lifecycle get /planner_server
+ros2 lifecycle get /velocity_smoother
+ros2 lifecycle get /collision_monitor
+\end{lstlisting}
+
+如果脚本卡在 \code{Waiting for Nav2 managed nodes to become active...}，优先看 \file{nav2_launch.log} 里 lifecycle 相关错误，而不是直接改控制器参数。
+
+\section{BT Navigator：高层导航任务编排}
+
+BT Navigator 是 Nav2 的“任务导演”。给它一个 \actionname{NavigateToPose} 目标后，它会按行为树执行：规划路径、跟踪路径、检查是否到达、失败时清 costmap 或执行恢复行为。
+
+\subsection{什么时候需要 BT Navigator}
+
+在本项目里，初期不一定需要 BT Navigator。原因很简单：当前目标是短距离直线采集和局部避障验证，\pkg{nav2_straight_path_client} 直接调用 \actionname{FollowPath} 更透明、更便于分析日志。
+
+当需要让 Nav2 自己重规划、处理恢复行为、做更完整的 NavigateToPose 流程时，再设置：
+
+\begin{lstlisting}[language=bash]
+NAV2_USE_NAVIGATE_TO_POSE=true
+MOVE_BACKEND=nav2
+\end{lstlisting}
+
+脚本会把这个变量传给 launch 的 \param{use_bt_navigator}，启动 \pkg{bt_navigator} 和 \pkg{behavior_server}。
+
+\subsection{核心参数}
+
+\begin{longtable}{L{0.28\textwidth}L{0.20\textwidth}L{0.42\textwidth}}
+\toprule
+参数 & 本项目中的值 & 含义 \\
+\midrule
+\param{global_frame} & \code{odom} & 当前没有静态地图定位链路，短距离实验直接在 odom frame 中导航。若将来引入 AMCL/SLAM，可改为 \code{map}。 \\
+\param{robot_base_frame} & \code{base_link} & 机器人本体坐标系，必须与 bridge 发布的 TF child frame 一致。 \\
+\param{odom_topic} & \topic{/odom} & 用于行为树反馈和控制状态。 \\
+\param{bt_loop_duration} & \code{10} ms & 行为树 tick 周期。过小会增加 CPU 压力。 \\
+\param{default_server_timeout} & \code{20} & 等待 action/service 的默认超时时间。 \\
+\param{plugin_lib_names} & 多个 BT 节点库 & 告诉 BT Navigator 可以使用哪些行为树节点。Humble 常需要显式列出插件库。 \\
+\bottomrule
+\end{longtable}
+
+\section{Planner Server：把目标变成路径}
+
+Planner Server 接收目标姿态，调用规划器插件生成 \code{nav_msgs/Path}。常见 action 是：
+
+\begin{itemize}
+  \item \actionname{ComputePathToPose}：从当前位置或给定起点规划到一个目标。
+  \item \actionname{ComputePathThroughPoses}：规划经过多个中间点的路径。
+\end{itemize}
+
+\subsection{本项目里的调用方式}
+
+\pkg{nav2_straight_path_client} 有两种路径来源：
+
+\begin{enumerate}
+  \item \param{use_planner=false}：自己生成一条 odom frame 下的直线路径，然后发给 \actionname{FollowPath}。
+  \item \param{use_planner=true}：调用 Planner Server 的 \actionname{ComputePathToPose}，用 costmap 选择可行路径，再发给 \actionname{FollowPath}。
+\end{enumerate}
+
+在 \file{nav2_straight_path_client.cpp} 中对应的核心函数是：
+
+\begin{longtable}{L{0.31\textwidth}L{0.59\textwidth}}
+\toprule
+函数 & 作用 \\
+\midrule
+\code{makeStraightPath()} & 根据当前 \topic{odom -> base_link} TF，生成前方 \param{distance_m} 的直线路径。 \\
+\code{computePlannedPath()} & 逐个尝试 \param{auto_lateral_offsets_m}，寻找 Planner Server 能规划出的路径。 \\
+\code{requestPlannedPath()} & 发送 \actionname{ComputePathToPose} action goal。 \\
+\code{makePoseAtDistance()} & 把“沿当前朝向前进 distance，侧向偏移 lateral offset”转换成目标 PoseStamped。 \\
+\bottomrule
+\end{longtable}
+
+\subsection{本项目中的规划器参数}
+
+\begin{lstlisting}[language=yaml]
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 4.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_smac_planner/SmacPlanner2D"
+      tolerance: 0.25
+      allow_unknown: true
+      cost_travel_multiplier: 1.6
+\end{lstlisting}
+
+\begin{longtable}{L{0.27\textwidth}L{0.18\textwidth}L{0.45\textwidth}}
+\toprule
+参数 & 当前值 & 含义 \\
+\midrule
+\param{expected_planner_frequency} & \code{4.0} & 规划器期望频率，用于诊断性能；短距离实验不需要太高。 \\
+\param{planner_plugins} & \code{["GridBased"]} & 插件 ID 列表；\code{GridBased} 是 YAML 中给插件起的名字。 \\
+\param{plugin} & \pkg{SmacPlanner2D} & 使用二维网格规划器，适合基于 costmap 的平面导航。 \\
+\param{tolerance} & \code{0.25} & 目标附近可接受的规划容忍距离。狭窄空间可适当调小，但更容易失败。 \\
+\param{allow_unknown} & \code{true} & rolling window、无静态地图场景常需要允许未知区域，否则规划容易被未知空间堵住。 \\
+\param{max_planning_time} & \code{2.0} & 单次规划时间上限。硬件实时实验中不要无限等规划。 \\
+\param{cost_travel_multiplier} & \code{1.6} & 代价对路径选择的影响；越大越偏向远离障碍物，但路径可能更绕。 \\
+\bottomrule
+\end{longtable}
+
+\section{Controller Server：把路径变成速度}
+
+Controller Server 是本项目当前 Nav2 实验里最核心的模块。它接收路径，调用控制器插件，周期性输出速度命令。本项目使用的是 DWB Local Planner：
+
+\begin{lstlisting}[language=yaml]
+controller_server:
+  ros__parameters:
+    controller_frequency: 8.0
+    controller_plugins: ["FollowPath"]
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+\end{lstlisting}
+
+DWB 的基本思想是：在允许的速度范围内采样很多候选速度，向前模拟一段时间，然后用 critic 给每条轨迹打分，选择最低代价的速度。
+
+\subsection{FollowPath action}
+
+本项目的 \pkg{nav2_straight_path_client} 会发送 \actionname{FollowPath} goal：
+
+\begin{lstlisting}[language=C++]
+FollowPath::Goal goal;
+goal.path = path;
+goal.controller_id = controller_id_;
+goal.goal_checker_id = goal_checker_id_;
+\end{lstlisting}
+
+这里：
+
+\begin{itemize}
+  \item \param{controller_id=FollowPath} 对应 YAML 里的 \param{controller_plugins: ["FollowPath"]}。
+  \item \param{goal_checker_id=general_goal_checker} 对应 YAML 里的目标到达判断插件。
+  \item \param{path} 是直线路径或 Planner Server 算出来的路径。
+\end{itemize}
+
+\subsection{控制器通用参数}
+
+\begin{longtable}{L{0.28\textwidth}L{0.19\textwidth}L{0.43\textwidth}}
+\toprule
+参数 & 本项目值 & 含义 \\
+\midrule
+\param{controller_frequency} & \code{8.0} 或 \code{10.0} & 控制循环频率。Go2 短距离低速实验不宜盲目很高，先保证命令稳定。 \\
+\param{failure_tolerance} & \code{0.5} / \code{10.0} & 控制器允许失败/无有效命令的容忍时间。minimal 文件更宽松，obstacle 文件更严格。 \\
+\param{progress_checker_plugins} & \code{progress_checker} & 判断机器人是否在持续前进，卡住时触发失败。 \\
+\param{goal_checker_plugins} & \code{general_goal_checker} & 判断是否到达目标。 \\
+\param{costmap_update_timeout} & \code{2.0} & 等待 costmap 更新的最长时间。点云链路不稳定时这里会暴露问题。 \\
+\bottomrule
+\end{longtable}
+
+\subsection{Progress Checker 和 Goal Checker}
+
+\begin{lstlisting}[language=yaml]
+progress_checker:
+  plugin: "nav2_controller::SimpleProgressChecker"
+  required_movement_radius: 0.06
+  movement_time_allowance: 30.0
+
+general_goal_checker:
+  stateful: true
+  plugin: "nav2_controller::SimpleGoalChecker"
+  xy_goal_tolerance: 0.15
+  yaw_goal_tolerance: 0.45
+\end{lstlisting}
+
+\begin{itemize}
+  \item \param{required_movement_radius}：在 \param{movement_time_allowance} 时间内至少移动这么远，否则认为没有进展。Go2 起步慢、地面打滑时不要设太大。
+  \item \param{xy_goal_tolerance}：目标点平面误差容忍。真实机器狗短距离实验建议比仿真宽一点，例如 0.15--0.20 m。
+  \item \param{yaw_goal_tolerance}：目标朝向误差。Go2 低速直线采集不追求精确朝向，可适度放宽。
+\end{itemize}
+
+\subsection{DWB 速度与采样参数}
+
+\begin{footnotesize}
+\begin{longtable}{L{0.31\textwidth}L{0.17\textwidth}L{0.42\textwidth}}
+\toprule
+参数 & obstacle 文件当前值 & 含义与 Go2 调法 \\
+\midrule
+\param{min_vel_x} & \code{0.06} & DWB 可选的最小前进速度。太高会让机器人难以慢速接近目标；太低可能原地犹豫。 \\
+\param{max_vel_x} & \code{0.12} & 最大前进速度。硬件避障实验先低速，确认安全后再升。 \\
+\param{min_vel_y/max_vel_y} & \code{-0.06/0.06} & 允许横向速度。四足机器人可侧移，但如果横移不稳定，可先设为 0。 \\
+\param{max_vel_theta} & \code{0.35} & 最大 yaw 角速度。点云和 TF 未稳定前不要给太大。 \\
+\param{min_speed_xy/max_speed_xy} & \code{0.06/0.13} & 平面速度模长范围。与 x/y 速度限制共同决定候选速度。 \\
+\param{acc_lim_x/decel_lim_x} & \code{0.18/-0.25} & x 方向加减速度限制。与 velocity smoother 参数应协调。 \\
+\param{vx_samples/vy_samples/vtheta_samples} & \code{5/5/11} & 速度采样数量。更多采样可更细腻，但 CPU 更高。 \\
+\param{sim_time} & \code{1.0} & DWB 向前模拟轨迹的时间。越大越看得远，但短距离低速可能过度保守。 \\
+\param{linear_granularity} & \code{0.10} & 模拟轨迹离散步长。障碍密集时可调小，但更耗计算。 \\
+\bottomrule
+\end{longtable}
+\end{footnotesize}
+
+\subsection{DWB critics}
+
+本项目的 obstacle 参数中使用：
+
+\begin{lstlisting}[language=yaml]
+critics: ["RotateToGoal", "Oscillation", "BaseObstacle",
+          "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+\end{lstlisting}
+
+\begin{longtable}{L{0.22\textwidth}L{0.68\textwidth}}
+\toprule
+Critic & 直观含义 \\
+\midrule
+\param{BaseObstacle} & 轨迹靠近障碍物时代价变高。Go2 近墙误停或擦墙，先看 costmap 和 inflation，再调它的 scale。 \\
+\param{PathAlign} & 鼓励机器人朝向路径方向。过高可能为了对齐而晃动。 \\
+\param{GoalAlign} & 鼓励接近目标时朝向目标方向。短直线可适中。 \\
+\param{PathDist} & 鼓励离全局路径近。过高会让机器人死守原路径，不愿绕开障碍。 \\
+\param{GoalDist} & 鼓励靠近目标。过高可能压过避障偏好。 \\
+\param{RotateToGoal} & 接近终点时调整朝向。Go2 不需要精确原地旋转时可以适度降低影响。 \\
+\param{Oscillation} & 抑制速度反复切换造成的振荡。 \\
+\bottomrule
+\end{longtable}
+
+\section{Costmap：Nav2 的环境记忆}
+
+Costmap 把传感器数据转换成二维代价网格。控制器和规划器不直接理解点云，它们看的是 costmap。
+
+\subsection{Global costmap 与 local costmap}
+
+\begin{longtable}{L{0.22\textwidth}L{0.35\textwidth}L{0.33\textwidth}}
+\toprule
+类型 & 常规作用 & 本项目中的用法 \\
+\midrule
+Global costmap & 给全局规划器用，通常范围更大，可包含静态地图。 & rolling window，\code{width=5,height=4}，用于短距离 ComputePathToPose。 \\
+Local costmap & 给控制器用，范围较小，更新更快，关注机器人周围。 & rolling window，\code{width=4,height=3}，直接影响 DWB 避障。 \\
+\bottomrule
+\end{longtable}
+
+当前没有依赖静态 \topic{/map}，所以两个 costmap 都用 \param{global_frame: odom} 和 \param{rolling_window: true}。这适合短距离实验，但不适合长时间全局导航，因为 odom 会漂移。
+
+\subsection{核心参数}
+
+\begin{longtable}{L{0.25\textwidth}L{0.22\textwidth}L{0.43\textwidth}}
+\toprule
+参数 & 本项目值 & 含义 \\
+\midrule
+\param{global_frame} & \code{odom} & costmap 所在坐标系。短距离无地图实验合理；有 AMCL 后通常 global costmap 用 \code{map}。 \\
+\param{robot_base_frame} & \code{base_link} & 与 bridge 发布 TF 一致。错了会导致 costmap 跟着错误位置跑。 \\
+\param{rolling_window} & \code{true} & 地图窗口跟随机器人移动。适合无静态地图的 Go2 短距离实验。 \\
+\param{width/height} & \code{4x3} 或 \code{5x4} & costmap 覆盖范围。太小看不到障碍，太大计算和噪声压力增加。 \\
+\param{resolution} & \code{0.05} & 栅格分辨率。越小越细，但计算更多。低速近场避障 5 cm 合理。 \\
+\param{footprint} & 四边形 & Go2 机身占据区域。过小会擦墙，过大会过度保守。 \\
+\param{footprint_padding} & \code{0.08} & 在 footprint 外再加安全边界。真实四足建议保守一点。 \\
+\param{plugins} & voxel + inflation & voxel layer 处理点云障碍，inflation layer 扩大障碍影响范围。 \\
+\bottomrule
+\end{longtable}
+
+\subsection{Voxel Layer：把 Go2 点云变成障碍物}
+
+\begin{lstlisting}[language=yaml]
+voxel_layer:
+  plugin: "nav2_costmap_2d::VoxelLayer"
+  origin_z: -0.30
+  z_resolution: 0.05
+  z_voxels: 16
+  observation_sources: go2_cloud
+  go2_cloud:
+    topic: /go2/pointcloud
+    data_type: "PointCloud2"
+    marking: true
+    clearing: true
+    min_obstacle_height: -0.20
+    max_obstacle_height: 0.90
+\end{lstlisting}
+
+\begin{itemize}
+  \item \param{marking=true}：点云命中的地方标记为障碍。
+  \item \param{clearing=true}：用射线清除已经不再有障碍的区域。
+  \item \param{min_obstacle_height/max_obstacle_height}：过滤地面以下和过高点。Go2 机身、腿、地面反射都可能污染点云，所以要结合 self filter 和 RViz 看。
+  \item \param{obstacle_max_range/raytrace_max_range}：决定障碍物标记和清除的最大距离。
+\end{itemize}
+
+\subsection{Inflation Layer：给障碍物加安全边界}
+
+\begin{lstlisting}[language=yaml]
+inflation_layer:
+  plugin: "nav2_costmap_2d::InflationLayer"
+  inflation_radius: 0.58
+  cost_scaling_factor: 3.8
+\end{lstlisting}
+
+\param{inflation_radius} 可以理解为“离障碍多远开始感到危险”。Go2 机身不小，而且四足步态有摆动，初期建议宁可略大。若机器人在狭窄空间完全不敢走，先确认点云坐标和 footprint，再微调 inflation。
+
+\section{Velocity Smoother：让速度命令更像真机器人能执行}
+
+Controller Server 输出的速度可能跳变。Velocity Smoother 在本项目中位于：
+
+\begin{lstlisting}
+/cmd_vel_nav -> velocity_smoother -> /cmd_vel_smoothed
+\end{lstlisting}
+
+再由 Collision Monitor 输出最终 \topic{/cmd_vel} 给 Go2 bridge。
+
+\begin{longtable}{L{0.28\textwidth}L{0.20\textwidth}L{0.42\textwidth}}
+\toprule
+参数 & 本项目值 & 含义 \\
+\midrule
+\param{smoothing_frequency} & \code{20.0} & 平滑器发布频率。应高于 controller frequency。 \\
+\param{feedback} & \code{OPEN_LOOP} & 不依赖真实速度反馈闭环平滑。若 odom 速度稳定，可探索 CLOSED\_LOOP。 \\
+\param{max_velocity} & \code{[0.12,0.06,0.35]} & x、y、yaw 最大速度，必须不超过 bridge 的 \param{max_vx_mps/max_vy_mps/max_wz_radps}。 \\
+\param{min_velocity} & \code{[0.0,-0.06,-0.35]} & 最小速度。当前不允许倒车 x，因为 x min 是 0。 \\
+\param{max_accel/max_decel} & \code{[...]} & 加减速度限制。越小越平顺，但响应避障更慢。 \\
+\param{velocity_timeout} & \code{0.5} & 上游速度超时后停止输出，避免残留命令。 \\
+\param{enable_stamped_cmd_vel} & \code{false} & 当前使用 \code{geometry_msgs/Twist}，与 bridge 的 \param{cmd_vel_stamped=false} 一致。 \\
+\bottomrule
+\end{longtable}
+
+\section{Collision Monitor：硬件实验的最后防线}
+
+Collision Monitor 不负责“漂亮地绕路”，它负责“危险时立即减速或停止”。它读取点云或激光，在机器人坐标系中定义多边形区域。区域内点数超过阈值时执行动作：
+
+\begin{itemize}
+  \item \code{stop}：输出零速度。
+  \item \code{slowdown}：按比例缩小速度。
+  \item 其他模式还可以做限制速度等，按 Nav2 版本支持情况为准。
+\end{itemize}
+
+本项目的参数中有：
+
+\begin{lstlisting}[language=yaml]
+polygons: ["FrontStop", "RightSideStop", "LeftSideStop",
+           "BodySlow", "SideSlow"]
+\end{lstlisting}
+
+\begin{longtable}{L{0.22\textwidth}L{0.20\textwidth}L{0.48\textwidth}}
+\toprule
+区域 & 动作 & 项目含义 \\
+\midrule
+\param{FrontStop} & \code{stop} & 机身正前方近距离硬停止区，防止直接撞上前方障碍。 \\
+\param{RightSideStop} & \code{stop} & 右侧近墙/障碍硬停止区。阈值 \param{max_points=3}，比较敏感。 \\
+\param{LeftSideStop} & \code{stop} & 左侧近墙/障碍硬停止区。 \\
+\param{BodySlow} & \code{slowdown} & 机身周围较大减速区，\param{slowdown_ratio=0.60}。 \\
+\param{SideSlow} & \code{slowdown} & 侧向更宽区域减速，\param{slowdown_ratio=0.50}。 \\
+\bottomrule
+\end{longtable}
+
+\begin{warnbox}{调 collision monitor 的正确顺序}
+不要一上来把 stop 区域缩小来解决“机器狗不动”。先做三件事：确认点云在 \code{base_link} 中方向正确；确认 self filter 没把墙过滤掉也没把机身保留下来；确认 RViz 中多边形区域和实际机身方向一致。只有这些都对了，才调 \param{points}、\param{max_points}、多边形尺寸和 slowdown ratio。
+\end{warnbox}
+
+\section{Behavior Server：恢复动作}
+
+Behavior Server 提供恢复行为，例如 \code{Spin}、\code{BackUp}、\code{DriveOnHeading}、\code{Wait}。BT Navigator 在路径失败、卡住、需要恢复时会调用它们。
+
+在本项目中：
+
+\begin{lstlisting}[language=yaml]
+behavior_server:
+  ros__parameters:
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
+    max_rotational_vel: 0.35
+    min_rotational_vel: 0.10
+    rotational_acc_lim: 0.50
+\end{lstlisting}
+
+Go2 硬件实验中，恢复行为要谨慎。尤其是 \code{Spin} 和 \code{BackUp}，如果点云/TF/周围空间没确认好，可能引入额外风险。初期建议用 \actionname{FollowPath} 直接实验，等感知链路稳定后再打开完整 BT 恢复流程。
+
+\section{Map Server、AMCL、SLAM：什么时候需要 map frame}
+
+标准 Nav2 经常使用：
+
+\begin{lstlisting}
+map -> odom -> base_link
+\end{lstlisting}
+
+其中：
+
+\begin{itemize}
+  \item \topic{odom -> base_link} 来自里程计或状态估计，短期连续但长期漂移。
+  \item \topic{map -> odom} 来自 AMCL、SLAM 或其他全局定位，用于校正长期漂移。
+\end{itemize}
+
+当前实验是短距离 RSSI/IMU/odom 数据采集，因此用 \code{odom} 作为全局 frame 是合理的。以后如果做更长路线、房间级导航或与地图对齐，可引入：
+
+\begin{itemize}
+  \item \textbf{Map Server}：加载静态地图，发布 \topic{/map}。
+  \item \textbf{AMCL}：用激光/点云与地图匹配，发布 \topic{map -> odom}。
+  \item \textbf{SLAM Toolbox}：边建图边定位，适合先生成室内地图。
+\end{itemize}
+
+\begin{notebox}{与 RSSI 研究的关系}
+AMCL/SLAM 可以作为调试或 ground-truth-like 对照信号，但不建议作为 RSSI 定位算法主输入。否则会很难说明最终定位性能来自 RSSI/IMU，还是来自传统地图定位。
+\end{notebox}
+
+\section{Waypoint Follower 与 Route Server：后续路线复现实验}
+
+当 RSSI 模型能估计路径进度 \code{s} 后，可以把路线复现分成两层：
+
+\begin{itemize}
+  \item \textbf{几何层}：把路线表示成路径、路点或拓扑边。
+  \item \textbf{执行层}：把下一小段目标交给 direct controller 或 Nav2。
+\end{itemize}
+
+Waypoint Follower 适合“按顺序经过多个点”；Route Server 更适合“走廊、房间、路口”这样的拓扑路线。当前阶段不必急着用它们，但理解它们有助于后续扩展。
+
+\chapter{本项目的关键参数对照}
+\label{chap:params}
+
+\section{Go2 bridge 参数}
+
+这些参数直接来自 \file{go2_nav2_bridge.cpp} 与本项目 YAML。它们决定 Nav2 和 Go2 硬件之间的接口是否可靠。
+
+\begin{footnotesize}
+\begin{longtable}{L{0.36\textwidth}L{0.18\textwidth}L{0.36\textwidth}}
+\toprule
+参数 & 当前/默认 & 解释与调法 \\
+\midrule
+\param{network_interface} & \code{eth0}/脚本传入 & Unitree SDK2 DDS 使用的网卡。外部电脑连接 Go2 时通常是实际有线/无线接口，例如 \code{enp5s0}。 \\
+\param{sport_state_topic} & \code{rt/sportmodestate} & Unitree DDS 运动状态来源。bridge 从这里拿位置、速度、IMU。 \\
+\param{unitree_point_cloud_topic} & \code{rt/utlidar/cloud} & Unitree DDS 点云来源。Nav2 obstacle 后端需要它。 \\
+\param{cmd_vel_topic} & \topic{/cmd_vel} & bridge 接收最终速度命令的话题。Nav2 链路中由 collision monitor 输出。 \\
+\param{cmd_vel_stamped} & \code{false} & 当前使用普通 \code{Twist}。若上游输出 \code{TwistStamped}，bridge、smoother、collision monitor 必须一起改。 \\
+\param{odom_topic} & \topic{/odom} & 发布 Go2 odom。Controller、BT、costmap 都依赖它。 \\
+\param{imu_topic} & \topic{/go2/imu} & 发布 Go2 IMU。RSSI/IMU 研究链路可记录。 \\
+\param{ros_point_cloud_topic} & \topic{/go2/pointcloud} & 发布给 Nav2 costmap 和 collision monitor 的 ROS 点云。 \\
+\param{path_s_topic} & \topic{/go2/path_s} & bridge 累计 Go2 位置变化得到的路径长度，是直线采集停止条件的核心。 \\
+\param{odom_frame/base_frame} & \code{odom/base_link} & TF 坐标名，必须与 Nav2 costmap、controller、BT 参数一致。 \\
+\param{point_cloud_frame} & \code{base_link} & 点云 frame。如果 Unitree 原始点云不是 \code{base_link}，需要用 offset/rpy 校准。 \\
+\param{point_cloud_transform_enabled} & \code{true} & 是否对点云应用平移/旋转校准。 \\
+\param{point_cloud_xyz_offset} & \code{[0,0,0]} & 点云坐标平移。标定 lidar 到 base\_link 的位置。 \\
+\param{point_cloud_rpy_offset} & \code{[0,0,0]} & 点云坐标旋转。方向错时优先检查这里。 \\
+\param{publish_tf} & \code{true} & 发布 \topic{odom -> base_link}。Nav2 必须能查到这个 TF。 \\
+\param{publish_point_cloud} & minimal: false; obstacle: true & direct 采集可关点云；Nav2 避障必须开。 \\
+\param{stand_on_start} & \code{true} & 启动时调用 \code{BalanceStand()}。 \\
+\param{classic_walk_on_start} & \code{true} & 启动时打开 ClassicWalk，增强稳定行走。 \\
+\param{speed_level_on_start} & \code{1} & Unitree speed level。先低速稳定，再考虑提高。 \\
+\param{cmd_timeout_sec} & \code{0.6}/\code{2.5} & 若超过该时间没有新非零速度命令，则 StopMove。Nav2 链路用较短超时更安全。 \\
+\param{control_watchdog_hz} & \code{20.0} & watchdog 检查频率。 \\
+\param{require_fresh_point_cloud_for_motion} & obstacle: true & 如果点云过期，bridge 阻止非零运动。硬件避障实验建议打开。 \\
+\param{point_cloud_motion_timeout_sec} & \code{0.8} & 点云多久没更新算 stale。 \\
+\param{self_filter_enabled} & \code{true} & 是否过滤机身/腿部点云。 \\
+\param{self_filter_boxes} & 多个 6 元组 & 每个 box 为 \code{min_x,max_x,min_y,max_y,min_z,max_z}，命中则设为 NaN。 \\
+\param{max_vx_mps/max_vy_mps/max_wz_radps} & \code{0.12/0.06/0.35} & bridge 最终限幅。上游 Nav2/smoother 不应超过它。 \\
+\bottomrule
+\end{longtable}
+\end{footnotesize}
+
+\section{Minimal 参数文件：适合 direct 直线采集}
+
+\file{go2_nav2_minimal_controller_params.yaml} 的特点：
+
+\begin{itemize}
+  \item \param{publish_point_cloud=false}，不依赖点云。
+  \item \param{max_vy_mps=0.0}、\param{max_wz_radps=0.0}，只允许前进。
+  \item controller 中 DWB 参数也只采样 x 方向速度。
+  \item local costmap 只有 inflation layer，没有 obstacle layer；因为 direct 后端其实不使用 Nav2 Controller。
+\end{itemize}
+
+这套参数适合 RSSI 直线采集。此时目标不是复杂避障，而是可重复、可解释、风险低的直线运动。
+
+\section{Straight obstacle 参数文件：适合 Nav2 避障实验}
+
+\file{go2_nav2_straight_params.yaml} 的特点：
+
+\begin{itemize}
+  \item \param{publish_point_cloud=true}。
+  \item 打开 \param{require_fresh_point_cloud_for_motion=true}。
+  \item local/global costmap 使用 \param{voxel_layer} + \param{inflation_layer}。
+  \item controller 使用 DWB，允许小幅横移和转向。
+  \item velocity smoother 与 collision monitor 串在 controller 后面。
+  \item \param{finish_on_path_s=true}，走够 \topic{/go2/path_s} 目标距离后取消 FollowPath 或 NavigateToPose。
+\end{itemize}
+
+\section{Nav2 straight client 参数}
+
+\begin{footnotesize}
+\begin{longtable}{L{0.34\textwidth}L{0.17\textwidth}L{0.39\textwidth}}
+\toprule
+参数 & 当前值 & 含义 \\
+\midrule
+\param{distance_m} & \code{1.0} & 目标前进距离。脚本会通过命令行覆盖。 \\
+\param{goal_lateral_offset_m} & \code{0.0} & 目标侧向偏移。可用于测试绕障或侧向路线。 \\
+\param{auto_lateral_offsets_m} & \code{[0,0.6,-0.6,1,-1]} & 使用 planner 时自动尝试多个侧向目标，找到可规划路径。 \\
+\param{path_resolution_m} & \code{0.10} & 自生成直线路径的点间距。 \\
+\param{odom_frame/base_frame} & \code{odom/base_link} & 查 TF 的坐标系。 \\
+\param{controller_id} & \code{FollowPath} & 对应 controller server 的插件 ID。 \\
+\param{goal_checker_id} & \code{general_goal_checker} & 对应目标检查器。 \\
+\param{action_name} & \code{follow_path} & FollowPath action server 名称。 \\
+\param{use_navigate_to_pose} & \code{false} & 为 true 时改用 BT Navigator 的 NavigateToPose。 \\
+\param{use_planner} & \code{true} & 为 true 时先请求 ComputePathToPose。脚本默认可由 \code{NAV2_USE_PLANNER} 控制。 \\
+\param{planner_id} & \code{GridBased} & Planner Server 中插件 ID。 \\
+\param{finish_on_path_s} & \code{true} & 用 \topic{/go2/path_s} 判断是否走够距离，达到后取消 Nav2 action。 \\
+\param{plan_only} & \code{false} & 为 true 时只规划不运动，适合安全检查。 \\
+\param{server_timeout_sec} & \code{20.0} & 等待 action server 的时间。 \\
+\param{tf_timeout_sec} & \code{10.0} & 等待 \topic{odom -> base_link} TF 的时间。 \\
+\bottomrule
+\end{longtable}
+\end{footnotesize}
+
+\section{Direct straight controller 参数}
+
+\begin{longtable}{L{0.29\textwidth}L{0.20\textwidth}L{0.41\textwidth}}
+\toprule
+参数 & 当前/脚本值 & 含义 \\
+\midrule
+\param{distance_m} & 命令行传入 & 目标距离，代码限制为 0.05--100 m。 \\
+\param{speed_mps} & 命令行传入 & 前进速度，代码限制为 0.03--0.35 m/s。 \\
+\param{max_runtime_sec} & 脚本计算/传入 & 超时保护。 \\
+\param{control_hz} & \code{20.0} & 发布 \topic{/cmd_vel} 的频率。 \\
+\param{start_delay_sec} & \code{0.0} & 运动前等待，给 bridge/传感器预热。 \\
+\param{distance_source} & \code{path_s} & 停止依据，可为 \code{path_s}、\code{odom} 或 \code{time}。优先用 \code{path_s}。 \\
+\param{cmd_vel_topic} & \topic{/cmd_vel} & 直接发给 bridge。 \\
+\param{path_s_topic} & \topic{/go2/path_s} & 读取路径进度。 \\
+\param{odom_topic} & \topic{/odom} & distance\_source 为 odom 时使用。 \\
+\bottomrule
+\end{longtable}
+
+\chapter{从零开始的实验流程}
+\label{chap:experiments}
+
+\section{构建工作区}
+
+在外部电脑上：
+
+\begin{lstlisting}[language=bash]
+cd /path/to/RSSI/code/ros2_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select go2_nav2_bridge
+source install/setup.bash
+\end{lstlisting}
+
+如果 Unitree SDK2 路径不是默认位置：
+
+\begin{lstlisting}[language=bash]
+colcon build --packages-select go2_nav2_bridge \
+  --cmake-args -DUNITREE_SDK2_DIR=/path/to/unitree_sdk2
+\end{lstlisting}
+
+\section{第一步：不动机器狗，只看感知链路}
+
+先运行：
+
+\begin{lstlisting}[language=bash]
+cd /path/to/RSSI/code
+source /opt/ros/humble/setup.bash
+source ros2_ws/install/setup.bash
+
+RUN_DIR="$HOME/go2_rssi_runs/perception_diag" \
+scripts/go2_diagnose_nav2_perception.sh enp5s0 12
+\end{lstlisting}
+
+看这些结果：
+
+\begin{lstlisting}[language=bash]
+tail -n 120 "$RUN_DIR/nav2_launch.log"
+cat "$RUN_DIR/perception_diag.txt"
+ros2 topic hz /go2/pointcloud
+ros2 topic echo /go2/path_s --once
+ros2 run tf2_ros tf2_echo odom base_link
+\end{lstlisting}
+
+合格标准：
+
+\begin{itemize}
+  \item \topic{/odom}、\topic{/tf}、\topic{/go2/path_s} 都有数据。
+  \item \topic{/go2/pointcloud} 在 RViz 中方向正确：前方是 +x，左侧是 +y，高度 z 合理。
+  \item self filter 没有把侧墙/前方障碍过滤掉。
+  \item collision monitor 的可视化多边形与 Go2 机身方向一致。
+\end{itemize}
+
+\section{第二步：direct 1 m 直线，不开 RSSI}
+
+\begin{lstlisting}[language=bash]
+RUN_DIR="$HOME/go2_rssi_runs/direct_test_1m" \
+MOVE_BACKEND=direct RSSI_MODE=off MAX_RUNTIME_SEC=20 \
+scripts/go2_collect_straight_line_nav2.sh enp5s0 1.0 0.20 1.0 0.5
+\end{lstlisting}
+
+这是最小硬件闭环：Go2 bridge + direct controller。此时不要让 Nav2 obstacle chain 参与，目的是确认：
+
+\begin{itemize}
+  \item Go2 能稳定进入站立/行走模式。
+  \item \topic{/cmd_vel} 到 \code{SportClient::Move} 有效。
+  \item \topic{/go2/path_s} 增长与实际行走距离大致一致。
+  \item 走完会停止，超时也会停止。
+\end{itemize}
+
+\section{第三步：direct + 远端 RSSI}
+
+\begin{lstlisting}[language=bash]
+RUN_DIR="$HOME/go2_rssi_runs/direct_1m_rssi" \
+MOVE_BACKEND=direct \
+RSSI_MODE=remote \
+ROBOT_SSH=unitree@192.168.123.18 \
+ROBOT_PROJECT_DIR=/home/unitree/rssi_go2 \
+ROBOT_NETWORK_INTERFACE=eth0 \
+BT_TTY=/dev/ttyACM1 \
+DIRECT_DISTANCE_SOURCE=path_s \
+MAX_RUNTIME_SEC=25 \
+scripts/go2_collect_straight_line_nav2.sh enp5s0 1.0 0.20 1.0 0.5
+\end{lstlisting}
+
+主要输出：
+
+\begin{itemize}
+  \item \file{rssi_realtime_windows.csv}
+  \item \file{rssi_raw_stream.csv}
+  \item \file{imu_stream.csv}
+  \item \file{remote_imu_stream.csv}
+  \item \file{nav2_launch.log}
+  \item \file{run_metadata.txt}
+\end{itemize}
+
+\section{第四步：Nav2 plan-only}
+
+真正让 Nav2 控制 Go2 前，先只规划不动：
+
+\begin{lstlisting}[language=bash]
+RUN_DIR="$HOME/go2_rssi_runs/nav2_planonly_0p5m" \
+MOVE_BACKEND=nav2 RSSI_MODE=off NAV2_PLAN_ONLY=true \
+NAV2_USE_PLANNER=true MAX_RUNTIME_SEC=20 \
+scripts/go2_collect_straight_line_nav2.sh enp5s0 0.5 0.10 1.0 0.5
+\end{lstlisting}
+
+看日志里的：
+
+\begin{lstlisting}
+planned_path_summary
+ComputePathToPose selected
+pointcloud_roi
+pointcloud_self_filter
+\end{lstlisting}
+
+如果规划路径的 \code{rel_last}、\code{rel_y_range} 明显不合理，先不要运动。
+
+\section{第五步：Nav2 0.5 m 低速避障实验}
+
+\begin{lstlisting}[language=bash]
+RUN_DIR="$HOME/go2_rssi_runs/nav2_obstacle_0p5m" \
+MOVE_BACKEND=nav2 RSSI_MODE=off \
+MAX_RUNTIME_SEC=20 \
+scripts/go2_collect_straight_line_nav2.sh enp5s0 0.5 0.12 1.0 0.5
+\end{lstlisting}
+
+只有当 0.5 m、0.12 m/s 稳定后，再考虑 1 m 或更快速度。四足机器人比仿真 turtlebot 更“活”，起步、横移、腿部点云、自身遮挡都会把 Nav2 的假设拉到现实里。
+
+\chapter{调参路线：按问题类型改，不要乱改}
+\label{chap:tuning}
+
+\section{机器狗不动}
+
+按顺序检查：
+
+\begin{enumerate}
+  \item 是否已有旧进程占用：脚本会提示 \code{Existing Go2/Nav2 control processes are still running}。
+  \item lifecycle 是否 active：\code{ros2 lifecycle get /controller_server}。
+  \item \topic{/cmd_vel} 是否有输出：\code{ros2 topic echo /cmd_vel}。
+  \item bridge 是否收到命令：看 \file{nav2_launch.log} 中 \code{cmd_vel -> Move}。
+  \item \code{SportClient::Move returned} 是否非 0。
+  \item 若 obstacle 模式，是否因为点云 stale 被 bridge 阻止：看 \code{Blocking nonzero cmd_vel because /go2/pointcloud is stale}。
+\end{enumerate}
+
+\section{一启动就停止}
+
+常见原因：
+
+\begin{itemize}
+  \item collision monitor stop 区域里有点，可能是墙、机身、腿部点云或坐标错误。
+  \item self filter box 太小，机身点没有过滤掉。
+  \item self filter box 太大，把真实墙过滤掉，随后 costmap/monitor 反常。
+  \item \param{finish_on_path_s} 读到的 \topic{/go2/path_s} 起点/增量异常。
+  \item \param{xy_goal_tolerance} 太大，Nav2 认为已经到达。
+\end{itemize}
+
+先在 RViz 看 \topic{/go2/pointcloud} 和 collision polygons，再调参数。
+
+\section{路径会规划，但控制器失败}
+
+优先看这些参数：
+
+\begin{itemize}
+  \item \param{controller_frequency} 是否太高或 costmap 更新跟不上。
+  \item \param{min_vel_x} 是否高于 Go2 起步稳定速度。
+  \item \param{max_vel_y/max_vel_theta} 是否允许必要的横向/转向修正。
+  \item DWB critics 中 \param{BaseObstacle.scale} 是否过高导致所有轨迹都被拒绝。
+  \item footprint 或 inflation 是否过大导致通道不可通行。
+\end{itemize}
+
+\section{机器人贴墙或避障太晚}
+
+调参顺序：
+
+\begin{enumerate}
+  \item 先确认点云 frame 和障碍物位置正确。
+  \item 增大 \param{footprint_padding} 或 \param{inflation_radius}。
+  \item 增大 collision monitor 的 slowdown 区域。
+  \item 降低 \param{max_vel_x}，给感知和控制更多反应时间。
+  \item 必要时增大 \param{BaseObstacle.scale}。
+\end{enumerate}
+
+\section{机器人过于保守，看到障碍就完全不走}
+
+调参顺序：
+
+\begin{enumerate}
+  \item 看 costmap 是否被噪声点填满。
+  \item 检查 \param{min_obstacle_height/max_obstacle_height} 是否把地面噪声算成障碍。
+  \item 检查 self filter 是否错误。
+  \item 适当减小 \param{inflation_radius} 或增大 \param{cost_scaling_factor}。
+  \item 降低 \param{BaseObstacle.scale} 或 \param{PathDist.scale}，让控制器更愿意绕开原路径。
+\end{enumerate}
+
+\chapter{排错清单}
+\label{chap:debugging}
+
+\section{最常用命令}
+
+\begin{lstlisting}[language=bash]
+# 看节点
+ros2 node list
+
+# 看 lifecycle
+ros2 lifecycle get /controller_server
+ros2 lifecycle get /planner_server
+
+# 看话题频率
+ros2 topic hz /odom
+ros2 topic hz /go2/pointcloud
+ros2 topic hz /cmd_vel
+
+# 看 TF
+ros2 run tf2_ros tf2_echo odom base_link
+
+# 看 action server
+ros2 action list
+
+# 看参数
+ros2 param get /controller_server controller_frequency
+ros2 param get /go2_nav2_bridge max_vx_mps
+
+# 看日志
+tail -n 220 "$RUN_DIR/nav2_launch.log"
+\end{lstlisting}
+
+\section{日志关键词}
+
+\begin{longtable}{L{0.30\textwidth}L{0.60\textwidth}}
+\toprule
+关键词 & 意义 \\
+\midrule
+\code{Managed nodes are active} & lifecycle manager 已经把 Nav2 节点激活。 \\
+\code{cmd_vel -> Move} & bridge 收到了最终速度并调用 Unitree Move。 \\
+\code{No cmd_vel for ... sent StopMove} & 上游速度断流，bridge watchdog 停止。 \\
+\code{Pointcloud watchdog stop} & 点云过期，bridge 停止。 \\
+\code{pointcloud_roi} & bridge 打印的点云 ROI 统计，用于看前方/侧方点数。 \\
+\code{pointcloud_self_filter removed} & 自身过滤移除了多少点。过多或过少都要警惕。 \\
+\code{FollowPath goal accepted} & Controller Server 接受路径跟踪目标。 \\
+\code{tracking: distance_to_goal} & FollowPath 正在跟踪。 \\
+\code{Path-s target reached} & \topic{/go2/path_s} 达到目标距离，client 取消 action 并结束。 \\
+\code{ComputePathToPose failed} & Planner Server 无法规划路径，先看 costmap 和目标点。 \\
+\bottomrule
+\end{longtable}
+
+\section{RViz 必看项目}
+
+\begin{itemize}
+  \item Fixed Frame 先用 \code{base_link} 看点云方向，再用 \code{odom} 看机器人运动。
+  \item 添加 TF，确认 \code{odom -> base_link} 连续。
+  \item 添加 \topic{/go2/pointcloud}。
+  \item 添加 \topic{/local_costmap/costmap} 和 \topic{/global_costmap/costmap}。
+  \item 添加 collision monitor 多边形话题，例如 \topic{/go2/front_stop_zone}。
+  \item 添加 Nav2 path 或 \topic{/plan}，确认规划结果。
+\end{itemize}
+
+\chapter{如何把 Nav2 用到 RSSI 路线复现研究}
+
+\section{推荐分层}
+
+后续可以把系统分成四层：
+
+\begin{enumerate}
+  \item \textbf{数据采集层}：direct 后端采集 RSSI、IMU、odom、path\_s，保证重复性。
+  \item \textbf{定位/进度估计层}：RSSI-only 与 RSSI+IMU/odom 估计当前路径进度 \code{s}。
+  \item \textbf{路线生成层}：把目标路线上的 \code{s+\Delta s} 转成局部目标或短路径。
+  \item \textbf{运动执行层}：无障碍基线用 direct，有障碍/安全对照用 Nav2 controller/collision monitor。
+\end{enumerate}
+
+\section{为什么不建议一开始就全量使用 Nav2}
+
+如果一开始就 AMCL + map + BT + planner + controller + recovery 全开，实验失败时会很难判断问题来自哪里。更稳的路径是：
+
+\begin{enumerate}
+  \item direct：证明 Go2 可以稳定按 path\_s 走指定距离。
+  \item direct + RSSI：证明采集链路稳定。
+  \item no-motion Nav2 perception：证明点云/costmap/monitor 正确。
+  \item Nav2 plan-only：证明规划合理。
+  \item Nav2 低速短距离：证明控制链路安全。
+  \item 再把 RSSI 估计输出接到路线客户端。
+\end{enumerate}
+
+\section{一个后续路线客户端的概念接口}
+
+当 RSSI 模型输出当前路径进度 \code{s}，路线客户端可以做：
+
+\begin{lstlisting}[language=C++]
+double s_now = rssi_imu_estimator.currentProgress();
+double s_target = s_now + lookahead_m;
+PoseStamped local_goal = route.lookupPoseAt(s_target);
+
+// Option A: direct backend
+publishShortHorizonCmdVel(local_goal);
+
+// Option B: Nav2 backend
+sendFollowPathOrNavigateToPose(local_goal);
+\end{lstlisting}
+
+直觉上，RSSI/IMU 告诉系统“我在路线上的哪里”，Nav2/Go2 后端负责“下一小段怎么安全地走过去”。
+
+\chapter{附录：官方资料与项目资料}
+
+\section{官方资料}
+
+建议按下面主题查 Nav2 官方文档：
+
+\begin{itemize}
+  \item Nav2 官方文档主页：\href{https://docs.nav2.org/}{docs.nav2.org}
+  \item Controller Server：\href{https://docs.nav2.org/configuration/packages/configuring-controller-server.html}{配置说明}
+  \item Planner Server：\href{https://docs.nav2.org/configuration/packages/configuring-planner-server.html}{配置说明}
+  \item BT Navigator：\href{https://docs.nav2.org/configuration/packages/configuring-bt-navigator.html}{配置说明}
+  \item Costmap 2D：\href{https://docs.nav2.org/configuration/packages/configuring-costmaps.html}{配置说明}
+  \item Velocity Smoother：\href{https://docs.nav2.org/configuration/packages/configuring-velocity-smoother.html}{配置说明}
+  \item Collision Monitor：\href{https://docs.nav2.org/configuration/packages/collision_monitor/configuring-collision-monitor-node.html}{配置说明}
+  \item Behavior Server：\href{https://docs.nav2.org/configuration/packages/configuring-behavior-server.html}{配置说明}
+  \item Lifecycle Manager：\href{https://docs.nav2.org/configuration/packages/configuring-lifecycle.html}{配置说明}
+  \item Map Server：\href{https://docs.nav2.org/configuration/packages/configuring-map-server.html}{配置说明}
+  \item AMCL：\href{https://docs.nav2.org/configuration/packages/configuring-amcl.html}{配置说明}
+  \item Waypoint Follower：\href{https://docs.nav2.org/configuration/packages/configuring-waypoint-follower.html}{配置说明}
+\end{itemize}
+
+\section{本项目资料}
+
+本教程重点对照了：
+
+\begin{itemize}
+  \item \file{GO2_NAV2_INTEGRATION.md}
+  \item \file{scripts/go2_collect_straight_line_nav2.sh}
+  \item \file{scripts/go2_diagnose_nav2_perception.sh}
+  \item \file{ros2_ws/src/go2_nav2_bridge/launch/go2_nav2_straight.launch.py}
+  \item \file{ros2_ws/src/go2_nav2_bridge/params/go2_nav2_minimal_controller_params.yaml}
+  \item \file{ros2_ws/src/go2_nav2_bridge/params/go2_nav2_straight_params.yaml}
+  \item \file{ros2_ws/src/go2_nav2_bridge/src/go2_nav2_bridge.cpp}
+  \item \file{ros2_ws/src/go2_nav2_bridge/src/nav2_straight_path_client.cpp}
+  \item \file{ros2_ws/src/go2_nav2_bridge/src/go2_direct_straight_controller.cpp}
+\end{itemize}
+
+\end{document}

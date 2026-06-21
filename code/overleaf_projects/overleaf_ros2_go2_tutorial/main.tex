@@ -1,0 +1,1269 @@
+% !TeX program = xelatex
+\documentclass[UTF8,11pt,a4paper,openany]{ctexrep}
+
+\usepackage[a4paper,margin=2.15cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage[most]{tcolorbox}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc}
+
+\definecolor{RosBlue}{HTML}{2563EB}
+\definecolor{GoGreen}{HTML}{16A34A}
+\definecolor{RssiOrange}{HTML}{EA580C}
+\definecolor{WarnRed}{HTML}{B91C1C}
+\definecolor{CodeBg}{HTML}{F6F8FA}
+\definecolor{FrameGray}{HTML}{D0D7DE}
+\definecolor{TextGray}{HTML}{57606A}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=RosBlue,
+  citecolor=RosBlue,
+  urlcolor=RosBlue,
+  pdftitle={ROS 2 使用教程：面向 Unitree Go2 RSSI 机器狗项目},
+  pdfauthor={Go2 RSSI Project}
+}
+
+\setlist[itemize]{leftmargin=2em,itemsep=0.2em,topsep=0.4em}
+\setlist[enumerate]{leftmargin=2em,itemsep=0.2em,topsep=0.4em}
+\renewcommand{\arraystretch}{1.18}
+\setlength{\tabcolsep}{4pt}
+\emergencystretch=2em
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\urlstyle{same}
+
+\lstdefinestyle{codestyle}{
+  backgroundcolor=\color{CodeBg},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  rulecolor=\color{FrameGray},
+  xleftmargin=0.4em,
+  xrightmargin=0.4em,
+  aboveskip=0.8em,
+  belowskip=0.8em,
+  showstringspaces=false,
+  tabsize=2
+}
+\lstdefinelanguage{yaml}{
+  keywords={true,false,null,y,n},
+  keywordstyle=\color{RosBlue}\bfseries,
+  basicstyle=\ttfamily\small,
+  sensitive=false,
+  comment=[l]{\#},
+  morecomment=[l]{---},
+  morestring=[b]',
+  morestring=[b]"
+}
+\lstdefinelanguage{bash}{
+  keywords={cd,source,export,if,then,else,elif,fi,for,do,done,case,esac,function,exec,true,false,while,return},
+  keywordstyle=\color{RosBlue}\bfseries,
+  basicstyle=\ttfamily\small,
+  sensitive=true,
+  comment=[l]{\#},
+  morestring=[b]',
+  morestring=[b]"
+}
+\lstdefinelanguage{cpp}{
+  keywords={class,public,private,void,int,double,bool,const,auto,return,if,else,while,for,namespace,using,new,static_cast,struct},
+  keywordstyle=\color{RosBlue}\bfseries,
+  basicstyle=\ttfamily\small,
+  sensitive=true,
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]"
+}
+\lstdefinelanguage{cmake}{
+  keywords={cmake_minimum_required,project,if,endif,set,find_package,find_library,add_executable,target_include_directories,ament_target_dependencies,target_link_libraries,install,ament_package},
+  keywordstyle=\color{RosBlue}\bfseries,
+  basicstyle=\ttfamily\small,
+  sensitive=false,
+  comment=[l]{\#},
+  morestring=[b]"
+}
+\lstset{style=codestyle}
+
+\newtcolorbox{notebox}[1]{
+  enhanced,
+  breakable,
+  colback=blue!3,
+  colframe=RosBlue!65,
+  title=#1,
+  fonttitle=\bfseries,
+  boxrule=0.6pt,
+  arc=2mm,
+  left=1mm,
+  right=1mm,
+  top=1mm,
+  bottom=1mm
+}
+
+\newtcolorbox{warnbox}[1]{
+  enhanced,
+  breakable,
+  colback=red!4,
+  colframe=WarnRed!70,
+  title=#1,
+  fonttitle=\bfseries,
+  boxrule=0.6pt,
+  arc=2mm,
+  left=1mm,
+  right=1mm,
+  top=1mm,
+  bottom=1mm
+}
+
+\newtcolorbox{termdef}[1]{
+  enhanced,
+  breakable,
+  colback=green!3,
+  colframe=GoGreen!65,
+  title=#1,
+  fonttitle=\bfseries,
+  boxrule=0.6pt,
+  arc=2mm,
+  left=1mm,
+  right=1mm,
+  top=1mm,
+  bottom=1mm
+}
+
+\newcommand{\code}[1]{\nolinkurl{#1}}
+\newcommand{\file}[1]{\nolinkurl{#1}}
+\newcommand{\pkg}[1]{\nolinkurl{#1}}
+\newcommand{\topic}[1]{\nolinkurl{#1}}
+\newcommand{\rosnode}[1]{\nolinkurl{#1}}
+\newcommand{\msg}[1]{\nolinkurl{#1}}
+\newcommand{\param}[1]{\nolinkurl{#1}}
+\newcommand{\actionname}[1]{\nolinkurl{#1}}
+
+\title{
+  \Huge ROS 2 使用教程\\
+  \Large 面向 Unitree Go2 RSSI 机器狗项目的对照学习手册
+}
+\author{Go2 RSSI / ROS 2 Integration Notes}
+\date{2026-06-15}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\chapter*{阅读方式}
+\addcontentsline{toc}{chapter}{阅读方式}
+
+这份教程不是泛泛介绍 ROS 2，而是围绕本项目已经存在的代码来讲。项目当前的 ROS 2 核心包是 \pkg{go2_nav2_bridge}，它把 Unitree Go2 的 DDS 数据转换成标准 ROS 2 话题，并把 ROS 2 的速度命令转换成 \code{SportClient::Move}。因此本文的主线是：
+
+\begin{center}
+  \textbf{先理解 ROS 2 的基本通信模型，再把每个概念对应到本项目的 Go2 bridge、RSSI/IMU 采集、Nav2 后端和直线控制器。}
+\end{center}
+
+建议按下面顺序读：
+
+\begin{enumerate}
+  \item 第 \ref{chap:big-picture} 章先建立 ROS 2 在本项目里的总体图。
+  \item 第 \ref{chap:core} 章学习 node、topic、message、parameter、launch、TF、QoS、action 等基础概念。
+  \item 第 \ref{chap:project-package} 章对照 \pkg{go2_nav2_bridge} 的文件结构和 CMake/package 配置。
+  \item 第 \ref{chap:bridge} 章细看 Go2 bridge 怎样发布 \topic{/odom}、\topic{/go2/imu}、\topic{/go2/path_s}、\topic{/go2/pointcloud}，以及怎样接收 \topic{/cmd_vel}。
+  \item 第 \ref{chap:run-debug} 章学习如何构建、运行、看话题、查 TF、查参数和定位问题。
+\end{enumerate}
+
+\begin{notebox}{本文约定}
+本文中的“本项目”指当前仓库中的 Go2 RSSI 路径进度项目。ROS 2 主要运行在外部电脑上，Go2 侧通过 Unitree SDK2/DDS 提供真实运动状态、IMU、点云和运动控制接口。RSSI/IMU 融合算法的主输出是路径进度 \(s\)，ROS 2 的任务是把机器人运动、传感器、采集脚本和可选 Nav2 后端组织起来。
+\end{notebox}
+
+\chapter{总体视角：ROS 2 在本项目里解决什么问题}
+\label{chap:big-picture}
+
+\section{一句话理解 ROS 2}
+
+ROS 2 可以先简单理解成“机器人软件的通信和组织框架”。它不直接等于控制算法，也不直接等于导航算法，而是负责让很多独立程序可靠地互相通信：
+
+\begin{itemize}
+  \item Go2 bridge 负责和 Unitree SDK2/DDS 打交道。
+  \item 直线控制器或 Nav2 负责产生速度命令。
+  \item RSSI/IMU 采集程序负责保存实验数据。
+  \item RViz、命令行工具、诊断脚本负责观察系统状态。
+\end{itemize}
+
+这些程序不需要写在同一个进程里。它们通过 ROS 2 的 topic、service、action、parameter、TF 等机制连接。
+
+\section{本项目的数据和控制闭环}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.98\textwidth}{!}{
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={draw, rounded corners=2mm, align=center, minimum width=31mm, minimum height=12mm, inner sep=2mm},
+  ros/.style={box, fill=blue!5, draw=RosBlue!70},
+  go/.style={box, fill=green!5, draw=GoGreen!70},
+  rssi/.style={box, fill=orange!6, draw=RssiOrange!75},
+  arrow/.style={-Latex, thick}
+]
+  \node[go] (go2) {Unitree Go2\\DDS / SportClient};
+  \node[ros, right=22mm of go2] (bridge) {\rosnode{go2_nav2_bridge}\\ROS 2 硬件桥};
+  \node[ros, above right=14mm and 22mm of bridge] (nav2) {Nav2 或\\直线控制器};
+  \node[ros, below right=14mm and 22mm of bridge] (topics) {ROS 2 话题\\odom / imu / path\_s / pointcloud};
+  \node[rssi, right=26mm of topics] (fusion) {RSSI + IMU/odom\\融合算法};
+  \node[rssi, below=14mm of topics] (collector) {采集脚本\\run directory CSV/log};
+
+  \draw[arrow] (go2) -- node[above, align=center]{sport state\\point cloud} (bridge);
+  \draw[arrow] (bridge) -- node[above, align=center]{\topic{/odom}\\\topic{/go2/imu}\\\topic{/go2/path_s}} (topics);
+  \draw[arrow] (topics) -- node[above]{同步窗口} (fusion);
+  \draw[arrow] (nav2) -- node[above, align=center]{\topic{/cmd_vel}\\或 \topic{/cmd_vel_nav}} (bridge);
+  \draw[arrow] (bridge) -- node[below]{\code{SportClient::Move}} (go2);
+  \draw[arrow] (topics) -- (collector);
+  \draw[arrow] (collector) -- node[right]{RSSI/IMU/odom 记录} (fusion);
+\end{tikzpicture}}
+\caption{本项目中的 ROS 2 角色：桥接真实 Go2、组织运动命令、发布标准传感器话题，并为 RSSI/IMU 融合算法提供时间对齐的数据。}
+\label{fig:project-ros2-flow}
+\end{figure}
+
+从图 \ref{fig:project-ros2-flow} 可以看到，本项目里 ROS 2 最核心的价值有三个：
+
+\begin{enumerate}
+  \item \textbf{统一接口。} Go2 原始 DDS 数据被转换成 \msg{nav_msgs/msg/Odometry}、\msg{sensor_msgs/msg/Imu}、\msg{sensor_msgs/msg/PointCloud2} 等标准消息。
+  \item \textbf{解耦模块。} 直线控制器、Nav2、诊断脚本、采集脚本都通过话题或 action 接入，不需要直接依赖 Unitree SDK2。
+  \item \textbf{可观测和可调试。} 可以用 \code{ros2 topic echo}、\code{ros2 topic hz}、\code{ros2 param get}、RViz 等工具检查系统。
+\end{enumerate}
+
+\section{本项目当前 ROS 2 文件总表}
+
+\begin{longtable}{L{0.30\textwidth} L{0.25\textwidth} L{0.36\textwidth}}
+\toprule
+\textbf{文件} & \textbf{ROS 2 角色} & \textbf{在本项目中的作用} \\
+\midrule
+\endhead
+\file{ros2_ws/src/go2_nav2_bridge/package.xml}
+& package 元数据
+& 声明包名、依赖、运行时组件。ROS 2 用它识别 \pkg{go2_nav2_bridge}。\\
+\file{ros2_ws/src/go2_nav2_bridge/CMakeLists.txt}
+& 构建规则
+& 用 \code{ament_cmake} 编译三个 C++ 可执行节点，并链接 Unitree SDK2。\\
+\file{src/go2_nav2_bridge.cpp}
+& ROS 2 node
+& 订阅 Unitree DDS，发布 \topic{/odom}、\topic{/go2/imu}、\topic{/go2/path_s}、\topic{/go2/pointcloud}，订阅 \topic{/cmd_vel} 后调用 \code{SportClient::Move}。\\
+\file{src/go2_direct_straight_controller.cpp}
+& ROS 2 node
+& 直接发布 \topic{/cmd_vel}，按 \topic{/go2/path_s}、\topic{/odom} 或时间判断何时停止。\\
+\file{src/nav2_straight_path_client.cpp}
+& action client
+& 向 Nav2 发送 \actionname{FollowPath}、\actionname{ComputePathToPose} 或 \actionname{NavigateToPose} 目标。\\
+\file{launch/go2_nav2_straight.launch.py}
+& launch 文件
+& 一次性启动 Go2 bridge、Nav2 controller、planner、BT navigator、velocity smoother、collision monitor 等节点。\\
+\file{params/go2_nav2_minimal_controller_params.yaml}
+& 参数文件
+& direct/minimal 场景参数，适合无障碍直线 RSSI 采集。\\
+\file{params/go2_nav2_straight_params.yaml}
+& 参数文件
+& obstacle/Nav2 场景参数，打开点云、costmap、velocity smoother 和 collision monitor。\\
+\file{scripts/go2_collect_straight_line_nav2.sh}
+& 实验编排脚本
+& 启动 RSSI、IMU、Go2 bridge、direct 或 Nav2 后端，并写入 run directory。\\
+\file{scripts/go2_diagnose_nav2_perception.sh}
+& 诊断脚本
+& 不让机器人运动，只启动感知链路，检查点云、costmap 和 collision monitor 前置条件。\\
+\bottomrule
+\end{longtable}
+
+\chapter{ROS 2 核心概念：用本项目来理解}
+\label{chap:core}
+
+\section{Workspace：工作空间}
+
+\begin{termdef}{Workspace}
+ROS 2 workspace 是一组 package 的开发目录。本项目的 ROS 2 workspace 是 \file{code/ros2_ws}。
+\end{termdef}
+
+本项目的结构是：
+
+\begin{lstlisting}[language=bash]
+code/
+  ros2_ws/
+    src/
+      go2_nav2_bridge/
+        package.xml
+        CMakeLists.txt
+        launch/
+        params/
+        src/
+\end{lstlisting}
+
+常用构建命令：
+
+\begin{lstlisting}[language=bash]
+cd /home/luping/桌面/RSSI/RSSI/code/ros2_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select go2_nav2_bridge
+source install/setup.bash
+\end{lstlisting}
+
+\begin{warnbox}{为什么一定要 source}
+\code{source /opt/ros/humble/setup.bash} 让 shell 知道 ROS 2 基础环境在哪里；\code{source install/setup.bash} 让 shell 知道本项目编译出的 \pkg{go2_nav2_bridge} 在哪里。没有 source，常见现象是 \code{ros2 pkg prefix go2_nav2_bridge} 找不到包，或者 \code{ros2 run go2_nav2_bridge ...} 找不到可执行文件。
+\end{warnbox}
+
+\section{Package：功能包}
+
+\begin{termdef}{Package}
+package 是 ROS 2 的最小组织单元。一个 package 可以包含节点源码、launch 文件、参数文件、消息定义、测试和安装规则。
+\end{termdef}
+
+本项目当前的 ROS 2 package 是 \pkg{go2_nav2_bridge}。它的 \file{package.xml} 声明了依赖：
+
+\begin{lstlisting}[language=xml]
+<depend>rclcpp</depend>
+<depend>geometry_msgs</depend>
+<depend>nav_msgs</depend>
+<depend>sensor_msgs</depend>
+<depend>tf2_ros</depend>
+<depend>nav2_msgs</depend>
+\end{lstlisting}
+
+这些依赖的含义：
+
+\begin{longtable}{L{0.22\textwidth} L{0.68\textwidth}}
+\toprule
+\textbf{依赖} & \textbf{作用} \\
+\midrule
+\endhead
+\pkg{rclcpp} & C++ 节点 API，用来创建 node、publisher、subscriber、timer、parameter。\\
+\pkg{rclcpp_action} & C++ action API，用来和 Nav2 的 \actionname{FollowPath}、\actionname{NavigateToPose} 交互。\\
+\pkg{geometry_msgs} & 提供 \msg{Twist}、\msg{PoseStamped}、\msg{TransformStamped} 等几何消息。\\
+\pkg{nav_msgs} & 提供 \msg{Odometry}、\msg{Path} 等导航消息。\\
+\pkg{sensor_msgs} & 提供 \msg{Imu}、\msg{PointCloud2} 等传感器消息。\\
+\pkg{std_msgs} & 提供 \msg{Float32} 等简单消息，本项目用它发布 \topic{/go2/path_s}。\\
+\pkg{tf2_ros} & 发布和查询坐标变换，例如 \code{odom -> base_link}。\\
+\pkg{nav2_msgs} & Nav2 action 和消息类型。\\
+\bottomrule
+\end{longtable}
+
+\section{Node：节点}
+
+\begin{termdef}{Node}
+node 是一个正在运行的 ROS 2 程序。一个节点通常负责一件清晰的事情，例如桥接硬件、发布速度、发送导航目标、诊断点云。
+\end{termdef}
+
+本项目最重要的节点如下：
+
+\begin{longtable}{L{0.30\textwidth} L{0.24\textwidth} L{0.36\textwidth}}
+\toprule
+\textbf{节点名} & \textbf{来源} & \textbf{职责} \\
+\midrule
+\endhead
+\rosnode{go2_nav2_bridge} & 本项目 C++ & 硬件桥。把 Go2 状态转换成 ROS 2 话题，把 \topic{/cmd_vel} 转成 Go2 运动命令。\\
+\rosnode{go2_direct_straight_controller} & 本项目 C++ & 直线采集控制器。发固定前进速度，按距离或时间停止。\\
+\rosnode{nav2_straight_path_client} & 本项目 C++ & Nav2 客户端。发送直线路径或目标点给 Nav2。\\
+\rosnode{controller_server} & Nav2 & 根据路径和 costmap 产生局部速度命令。\\
+\rosnode{velocity_smoother} & Nav2 & 平滑速度命令，限制加速度和减速度。\\
+\rosnode{collision_monitor} & Nav2 & 根据点云安全区修改或阻断速度命令。\\
+\rosnode{go2_nav2_perception_diag} & 本项目 Python & 订阅点云和 costmap，输出感知链路统计。\\
+\bottomrule
+\end{longtable}
+
+查看当前节点：
+
+\begin{lstlisting}[language=bash]
+ros2 node list
+ros2 node info /go2_nav2_bridge
+\end{lstlisting}
+
+\section{Topic 和 Message：话题与消息}
+
+\begin{termdef}{Topic}
+topic 是连续数据流。publisher 往 topic 发消息，subscriber 从 topic 收消息。topic 适合传感器、速度、状态这类“不断更新”的数据。
+\end{termdef}
+
+\begin{termdef}{Message}
+message 是 topic 上每一帧数据的结构。例如 \topic{/cmd_vel} 的消息类型是 \msg{geometry_msgs/msg/Twist}，里面有线速度和角速度。
+\end{termdef}
+
+本项目的核心 topic：
+
+\begin{longtable}{L{0.22\textwidth} L{0.28\textwidth} L{0.40\textwidth}}
+\toprule
+\textbf{Topic} & \textbf{消息类型} & \textbf{含义} \\
+\midrule
+\endhead
+\topic{/cmd_vel} & \msg{geometry_msgs/msg/Twist} & 最终发给 Go2 bridge 的速度命令。bridge 会调用 \code{SportClient::Move(vx, vy, wz)}。\\
+\topic{/cmd_vel_nav} & \msg{geometry_msgs/msg/Twist} & Nav2 controller 输出的原始速度，之后进入 velocity smoother。\\
+\topic{/cmd_vel_smoothed} & \msg{geometry_msgs/msg/Twist} & velocity smoother 输出的平滑速度，之后进入 collision monitor。\\
+\topic{/odom} & \msg{nav_msgs/msg/Odometry} & Go2 当前位姿和速度。来源是 Unitree \code{SportModeState}。\\
+\topic{/tf} & \msg{tf2_msgs/msg/TFMessage} & 坐标变换流，本项目主要发布 \code{odom -> base_link}。\\
+\topic{/go2/imu} & \msg{sensor_msgs/msg/Imu} & Go2 IMU 姿态、角速度、线加速度。来源是 \code{SportModeState.imu_state()}。\\
+\topic{/go2/path_s} & \msg{std_msgs/msg/Float32} & bridge 根据 Go2 position 增量累计出的路径进度。\\
+\topic{/go2/pointcloud} & \msg{sensor_msgs/msg/PointCloud2} & Go2 点云，供 Nav2 costmap 和 collision monitor 使用。\\
+\topic{/local_costmap/costmap} & \msg{nav_msgs/msg/OccupancyGrid} & Nav2 局部代价地图，诊断脚本会读取它。\\
+\bottomrule
+\end{longtable}
+
+常用命令：
+
+\begin{lstlisting}[language=bash]
+ros2 topic list
+ros2 topic info /odom
+ros2 topic echo /go2/path_s
+ros2 topic hz /go2/imu
+ros2 interface show geometry_msgs/msg/Twist
+\end{lstlisting}
+
+\section{Publisher 和 Subscriber：发布与订阅}
+
+在 \file{go2_nav2_bridge.cpp} 里，bridge 创建 publisher：
+
+\begin{lstlisting}[language=cpp]
+odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(odom_topic_, rclcpp::SensorDataQoS());
+imu_pub_ = create_publisher<sensor_msgs::msg::Imu>(imu_topic_, rclcpp::SensorDataQoS());
+path_s_pub_ = create_publisher<std_msgs::msg::Float32>(path_s_topic_, 10);
+point_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+  ros_point_cloud_topic_, rclcpp::SensorDataQoS());
+\end{lstlisting}
+
+也创建 subscriber：
+
+\begin{lstlisting}[language=cpp]
+cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+  cmd_vel_topic_, 10,
+  std::bind(&Go2Nav2Bridge::onTwist, this, std::placeholders::_1));
+\end{lstlisting}
+
+直白理解：
+
+\begin{itemize}
+  \item publisher 是“往外广播数据”。
+  \item subscriber 是“监听别人发来的数据”。
+  \item bridge 既是 publisher，也是 subscriber，因为它既发布 Go2 状态，也接收运动命令。
+\end{itemize}
+
+\section{Parameter：参数}
+
+\begin{termdef}{Parameter}
+parameter 是节点启动时或运行时可配置的变量。它让同一个程序在不同实验场景下使用不同配置，而不需要改 C++ 源码。
+\end{termdef}
+
+\file{go2_nav2_bridge.cpp} 中有大量 \code{declare_parameter}：
+
+\begin{lstlisting}[language=cpp]
+network_interface_ = declare_parameter<std::string>("network_interface", "");
+cmd_vel_topic_ = declare_parameter<std::string>("cmd_vel_topic", "/cmd_vel");
+odom_topic_ = declare_parameter<std::string>("odom_topic", "/odom");
+imu_topic_ = declare_parameter<std::string>("imu_topic", "/go2/imu");
+publish_point_cloud_ = declare_parameter<bool>("publish_point_cloud", true);
+cmd_timeout_sec_ = declare_parameter<double>("cmd_timeout_sec", 0.5);
+max_vx_mps_ = declare_parameter<double>("max_vx_mps", 0.35);
+\end{lstlisting}
+
+这些参数在 YAML 中配置：
+
+\begin{lstlisting}[language=yaml]
+go2_nav2_bridge:
+  ros__parameters:
+    network_interface: eth0
+    cmd_vel_topic: /cmd_vel
+    odom_topic: /odom
+    imu_topic: /go2/imu
+    publish_point_cloud: true
+    cmd_timeout_sec: 0.6
+    max_vx_mps: 0.12
+\end{lstlisting}
+
+查询参数：
+
+\begin{lstlisting}[language=bash]
+ros2 param list /go2_nav2_bridge
+ros2 param get /go2_nav2_bridge max_vx_mps
+\end{lstlisting}
+
+\section{Launch：一键启动多个节点}
+
+\begin{termdef}{Launch}
+launch 文件是 ROS 2 的启动编排。它能一次启动多个节点，并给它们传参数、重映射话题、设置条件。
+\end{termdef}
+
+本项目的 \file{go2_nav2_straight.launch.py} 做了这些事：
+
+\begin{itemize}
+  \item 永远启动 \rosnode{go2_nav2_bridge}。
+  \item 当 \param{move_backend=nav2} 时启动 Nav2 controller、velocity smoother、collision monitor。
+  \item 当 \param{use_planner=true} 或 \param{use_bt_navigator=true} 时启动 planner。
+  \item 当 \param{use_bt_navigator=true} 时启动 behavior server 和 BT navigator。
+  \item 启动 lifecycle manager，使 Nav2 管理节点进入 active 状态。
+\end{itemize}
+
+启动示例：
+
+\begin{lstlisting}[language=bash]
+ros2 launch go2_nav2_bridge go2_nav2_straight.launch.py \
+  params_file:=/path/to/go2_nav2_straight_params.yaml \
+  move_backend:=nav2 \
+  use_bt_navigator:=false \
+  use_planner:=false \
+  network_interface:=enp5s0
+\end{lstlisting}
+
+\section{Remapping：话题重映射}
+
+Nav2 controller 默认输出 \topic{cmd_vel}。本项目在 launch 里把它重映射成 \topic{/cmd_vel_nav}：
+
+\begin{lstlisting}[language=python]
+Node(
+  package="nav2_controller",
+  executable="controller_server",
+  name="controller_server",
+  remappings=[("cmd_vel", "/cmd_vel_nav")],
+)
+\end{lstlisting}
+
+这样做的原因是要把速度链路拆开：
+
+\begin{center}
+\topic{/cmd_vel_nav} \(\rightarrow\) \rosnode{velocity_smoother} \(\rightarrow\)
+\topic{/cmd_vel_smoothed} \(\rightarrow\) \rosnode{collision_monitor} \(\rightarrow\)
+\topic{/cmd_vel} \(\rightarrow\) \rosnode{go2_nav2_bridge}
+\end{center}
+
+也就是说，\topic{/cmd_vel} 是真正进入 Go2 bridge 的最终速度命令。
+
+\section{TF：坐标变换}
+
+\begin{termdef}{TF}
+TF 是 ROS 2 中维护坐标系关系的系统。机器人导航至少需要知道 \code{odom} 坐标系和 \code{base_link} 坐标系之间的关系。
+\end{termdef}
+
+本项目 bridge 发布：
+
+\begin{center}
+  \code{odom -> base_link}
+\end{center}
+
+\file{go2_nav2_bridge.cpp} 中相关逻辑是：
+
+\begin{lstlisting}[language=cpp]
+tf_msg.header.frame_id = odom_frame_;
+tf_msg.child_frame_id = base_frame_;
+tf_msg.transform.translation.x = odom.pose.pose.position.x;
+tf_msg.transform.translation.y = odom.pose.pose.position.y;
+tf_msg.transform.rotation = odom.pose.pose.orientation;
+tf_broadcaster_->sendTransform(tf_msg);
+\end{lstlisting}
+
+检查 TF：
+
+\begin{lstlisting}[language=bash]
+ros2 run tf2_ros tf2_echo odom base_link
+\end{lstlisting}
+
+\begin{warnbox}{TF 出问题时会怎样}
+Nav2 controller、planner、costmap 都依赖 TF。如果 \code{odom -> base_link} 不存在、时间戳太旧、frame 名不一致，常见现象是 Nav2 active 了但不出速度，或者日志里出现 transform timeout。
+\end{warnbox}
+
+\section{QoS：通信质量配置}
+
+\begin{termdef}{QoS}
+QoS 决定 ROS 2 通信的可靠性、缓存深度、是否保留上一帧等策略。传感器数据通常用低延迟策略，地图类数据常用可靠和 transient local 策略。
+\end{termdef}
+
+本项目中：
+
+\begin{itemize}
+  \item \topic{/odom}、\topic{/go2/imu}、\topic{/go2/pointcloud} 使用 \code{rclcpp::SensorDataQoS()}，适合高频传感器。
+  \item \topic{/go2/path_s} 使用普通 depth 10，因为它是轻量路径进度值。
+  \item 诊断脚本订阅 \topic{/go2/pointcloud} 时使用 best effort，订阅 \topic{/local_costmap/costmap} 时使用 reliable + transient local。
+\end{itemize}
+
+如果 \code{ros2 topic echo} 看不到某些传感器数据，但节点确实在发布，可能是 QoS 不匹配。可用：
+
+\begin{lstlisting}[language=bash]
+ros2 topic info /go2/pointcloud --verbose
+\end{lstlisting}
+
+\section{Action：长任务接口}
+
+\begin{termdef}{Action}
+action 用于“会持续一段时间、需要反馈、可以取消”的任务。例如导航到目标点、跟随路径。
+\end{termdef}
+
+本项目的 \rosnode{nav2_straight_path_client} 使用三个 Nav2 action：
+
+\begin{longtable}{L{0.28\textwidth} L{0.56\textwidth}}
+\toprule
+\textbf{Action} & \textbf{本项目用途} \\
+\midrule
+\endhead
+\actionname{FollowPath} & 给 Nav2 controller 一条路径，让 controller 产生局部速度。\\
+\actionname{ComputePathToPose} & 请求 planner 从当前位置规划到目标点。\\
+\actionname{NavigateToPose} & 交给 BT navigator 完成目标导航，可包含重规划和行为树逻辑。\\
+\bottomrule
+\end{longtable}
+
+初学时可以这样区分：
+
+\begin{itemize}
+  \item topic 像“直播数据流”：IMU、odom、cmd\_vel。
+  \item service 像“一问一答”：请求一次，返回一次。
+  \item action 像“执行任务”：发送目标，期间有反馈，最后有结果，还可以取消。
+\end{itemize}
+
+\section{Lifecycle：Nav2 管理节点状态}
+
+Nav2 很多节点不是普通 node，而是 lifecycle node。它们有状态：unconfigured、inactive、active、finalized。只有 active 后才真正工作。
+
+本项目 launch 使用 \rosnode{lifecycle_manager} 自动激活 Nav2 节点。采集脚本里也会等待日志出现：
+
+\begin{lstlisting}[language=bash]
+Managed nodes are active
+\end{lstlisting}
+
+命令行检查：
+
+\begin{lstlisting}[language=bash]
+ros2 lifecycle get /controller_server
+\end{lstlisting}
+
+\chapter{本项目 ROS 2 Package 逐文件对照}
+\label{chap:project-package}
+
+\section{package.xml：告诉 ROS 2 这个包是什么}
+
+\file{package.xml} 里最关键的是三类信息：
+
+\begin{itemize}
+  \item 包名：\pkg{go2_nav2_bridge}。
+  \item 构建工具：\pkg{ament_cmake}。
+  \item 编译和运行依赖：\pkg{rclcpp}、\pkg{nav_msgs}、\pkg{sensor_msgs}、\pkg{tf2_ros}、\pkg{nav2_msgs}、Nav2 相关包。
+\end{itemize}
+
+本项目还声明了 Nav2 运行依赖：
+
+\begin{lstlisting}[language=xml]
+<exec_depend>nav2_controller</exec_depend>
+<exec_depend>nav2_costmap_2d</exec_depend>
+<exec_depend>nav2_velocity_smoother</exec_depend>
+<exec_depend>nav2_collision_monitor</exec_depend>
+<exec_depend>nav2_lifecycle_manager</exec_depend>
+\end{lstlisting}
+
+这表示：编译本项目 C++ 代码不一定需要直接链接这些 Nav2 进程，但运行 launch 时需要它们存在。
+
+\section{CMakeLists.txt：告诉 colcon 怎么编译}
+
+\file{CMakeLists.txt} 中定义了三个可执行节点：
+
+\begin{lstlisting}[language=cmake]
+add_executable(go2_nav2_bridge src/go2_nav2_bridge.cpp)
+add_executable(nav2_straight_path_client src/nav2_straight_path_client.cpp)
+add_executable(go2_direct_straight_controller src/go2_direct_straight_controller.cpp)
+\end{lstlisting}
+
+然后安装：
+
+\begin{lstlisting}[language=cmake]
+install(TARGETS
+  go2_nav2_bridge
+  nav2_straight_path_client
+  go2_direct_straight_controller
+  DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY launch params
+  DESTINATION share/${PROJECT_NAME})
+\end{lstlisting}
+
+这两段决定了：
+
+\begin{itemize}
+  \item \code{ros2 run go2_nav2_bridge go2_nav2_bridge} 可以找到可执行文件。
+  \item \code{ros2 launch go2_nav2_bridge go2_nav2_straight.launch.py} 可以找到 launch 文件。
+  \item \code{ros2 pkg prefix go2_nav2_bridge} 下可以找到安装后的 params 文件。
+\end{itemize}
+
+\section{Unitree SDK2 链接}
+
+本项目 bridge 需要链接 Unitree SDK2：
+
+\begin{lstlisting}[language=cmake]
+find_library(UNITREE_SDK2_LIB
+  NAMES unitree_sdk2
+  PATHS "${UNITREE_SDK2_DIR}/lib/${UNITREE_SDK2_ARCH}"
+  NO_DEFAULT_PATH)
+\end{lstlisting}
+
+如果 SDK2 不在默认位置，可以这样构建：
+
+\begin{lstlisting}[language=bash]
+colcon build --packages-select go2_nav2_bridge \
+  --cmake-args -DUNITREE_SDK2_DIR=/path/to/unitree_sdk2
+\end{lstlisting}
+
+运行时还要保证动态库路径正确。采集脚本会把：
+
+\begin{lstlisting}[language=bash]
+code/unitree_sdk2/thirdparty/lib/$(uname -m)
+\end{lstlisting}
+
+加入 \code{LD_LIBRARY_PATH}。
+
+\chapter{Go2 Bridge：本项目最关键的 ROS 2 节点}
+\label{chap:bridge}
+
+\section{Bridge 的输入输出}
+
+\rosnode{go2_nav2_bridge} 是本项目 ROS 2 链路的中心。它一边连接 Unitree DDS/SportClient，一边连接 ROS 2。
+
+\begin{longtable}{L{0.23\textwidth} L{0.18\textwidth} L{0.48\textwidth}}
+\toprule
+\textbf{方向} & \textbf{接口} & \textbf{说明} \\
+\midrule
+\endhead
+Go2 \(\rightarrow\) ROS 2 & \code{rt/sportmodestate} & 读取 Go2 position、velocity、rpy、gyro、acc，转换成 odom、imu、path\_s、TF。\\
+Go2 \(\rightarrow\) ROS 2 & \code{rt/utlidar/cloud} & 读取 Unitree 点云，转换成 \msg{sensor_msgs/msg/PointCloud2}，可做外参变换和自过滤。\\
+ROS 2 \(\rightarrow\) Go2 & \topic{/cmd_vel} & 接收线速度和角速度，限幅后调用 \code{SportClient::Move}。\\
+\bottomrule
+\end{longtable}
+
+\section{速度命令如何进入 Go2}
+
+当 bridge 收到 \topic{/cmd_vel}：
+
+\begin{lstlisting}[language=cpp]
+void onTwist(const geometry_msgs::msg::Twist::SharedPtr msg)
+{
+  sendVelocity(msg->linear.x, msg->linear.y, msg->angular.z);
+}
+\end{lstlisting}
+
+\code{sendVelocity} 会做三件重要的事：
+
+\begin{enumerate}
+  \item 把非有限值变成 0，避免 NaN/inf 进入机器人。
+  \item 用 \param{max_vx_mps}、\param{max_vy_mps}、\param{max_wz_radps} 对速度限幅。
+  \item 调用 \code{sport_client_->Move(vx, vy, wz)}。
+\end{enumerate}
+
+简化逻辑：
+
+\begin{lstlisting}[language=cpp]
+safe_vx = clamp(vx, -max_vx_mps_, max_vx_mps_);
+safe_vy = clamp(vy, -max_vy_mps_, max_vy_mps_);
+safe_wz = clamp(wz, -max_wz_radps_, max_wz_radps_);
+sport_client_->Move(safe_vx, safe_vy, safe_wz);
+\end{lstlisting}
+
+\begin{warnbox}{速度限幅是安全边界}
+Nav2、直线控制器、命令行都可能发 \topic{/cmd_vel}。真正进入 Go2 前，bridge 的 \param{max_vx_mps}、\param{max_vy_mps}、\param{max_wz_radps} 是最后一道软件限幅。实验时不要只看 controller 参数，也要看 bridge 参数。
+\end{warnbox}
+
+\section{watchdog：为什么机器人会自动停}
+
+bridge 中有 watchdog timer。若持续一段时间没有新的非零速度命令，就发送停止：
+
+\begin{lstlisting}[language=cpp]
+if (age > cmd_timeout_sec_) {
+  sendStop();
+}
+\end{lstlisting}
+
+这对应参数：
+
+\begin{lstlisting}[language=yaml]
+cmd_timeout_sec: 0.6
+control_watchdog_hz: 20.0
+\end{lstlisting}
+
+直白理解：ROS 2 速度命令必须持续发布。如果上游节点崩了、网络断了、Nav2 卡了，bridge 不会让 Go2 一直按旧速度走。
+
+\section{odom 是怎么来的}
+
+\topic{/odom} 不是 RSSI 算出来的，也不是 Nav2 算出来的。本项目的 \topic{/odom} 来自 Go2 的 \code{SportModeState}：
+
+\begin{lstlisting}[language=cpp]
+const auto & position = state.position();
+const auto & velocity = state.velocity();
+const auto & rpy = state.imu_state().rpy();
+\end{lstlisting}
+
+bridge 把这些字段填入 \msg{nav_msgs/msg/Odometry}：
+
+\begin{lstlisting}[language=cpp]
+odom.pose.pose.position.x = position[0];
+odom.pose.pose.position.y = position[1];
+odom.pose.pose.position.z = position[2];
+odom.twist.twist.linear.x = velocity[0];
+odom.twist.twist.linear.y = velocity[1];
+odom.twist.twist.angular.z = state.yaw_speed();
+\end{lstlisting}
+
+所以本项目里的 odom 可以理解为：
+
+\begin{center}
+  \textbf{Go2 底层状态估计给出的短期位姿和速度，bridge 把它包装成标准 ROS 2 odometry。}
+\end{center}
+
+它适合做短时连续性、运动约束、Nav2 controller 输入和实验参考；不应把它当成 RSSI 研究算法的主定位结果。
+
+\section{/go2/path\_s 是怎么来的}
+
+bridge 每次收到 Go2 sport state，会比较当前 position 和上一帧 position：
+
+\begin{lstlisting}[language=cpp]
+const double dx = position[0] - last_x_;
+const double dy = position[1] - last_y_;
+const double ds = std::hypot(dx, dy);
+path_s_m_ += ds;
+\end{lstlisting}
+
+然后发布：
+
+\begin{lstlisting}[language=cpp]
+std_msgs::msg::Float32 path_s;
+path_s.data = static_cast<float>(path_s_m_);
+path_s_pub_->publish(path_s);
+\end{lstlisting}
+
+\topic{/go2/path_s} 的含义是“从本次 bridge 启动后累计走过的路径长度”。它不是全局地图上的真实 \(s\)，但在直线采集时很有用，因为它可以告诉直线控制器“这一趟已经走了多少米”。
+
+\section{IMU 是怎么发布的}
+
+Go2 sport state 中的 IMU 字段被转成标准 \msg{sensor_msgs/msg/Imu}：
+
+\begin{lstlisting}[language=cpp]
+imu.orientation = odom.pose.pose.orientation;
+imu.angular_velocity.x = gyro[0];
+imu.angular_velocity.y = gyro[1];
+imu.angular_velocity.z = gyro[2];
+imu.linear_acceleration.x = acc[0];
+imu.linear_acceleration.y = acc[1];
+imu.linear_acceleration.z = acc[2];
+imu_pub_->publish(imu);
+\end{lstlisting}
+
+融合算法使用 IMU/odom 的方式可以简单理解为：RSSI 给当前位置观测，IMU/odom 给短时间内“应该移动了多少”的运动约束，最后融合出预测 \(s\)。
+
+\section{点云处理：外参、过滤和新鲜度检查}
+
+当 \param{publish_point_cloud=true} 时，bridge 会把 Unitree 点云发布成 \topic{/go2/pointcloud}。中间会做三件事：
+
+\begin{enumerate}
+  \item 根据 \param{point_cloud_xyz_offset} 和 \param{point_cloud_rpy_offset} 做坐标变换。
+  \item 根据 \param{self_filter_boxes} 删除机器人自身附近的点。
+  \item 更新点云时间戳，给 \param{require_fresh_point_cloud_for_motion} 使用。
+\end{enumerate}
+
+如果打开：
+
+\begin{lstlisting}[language=yaml]
+require_fresh_point_cloud_for_motion: true
+point_cloud_motion_timeout_sec: 0.8
+\end{lstlisting}
+
+那么点云太久没更新时，bridge 会阻止非零速度命令。这适合 obstacle/Nav2 测试，但不适合没有点云的 minimal 直线采集。
+
+\chapter{直线控制器与 Nav2 客户端}
+
+\section{直线控制器：最小闭环}
+
+\rosnode{go2_direct_straight_controller} 是本项目推荐的无障碍直线采集后端。它不依赖 Nav2 controller，只做简单稳定的事情：
+
+\begin{enumerate}
+  \item 订阅 \topic{/go2/path_s} 和 \topic{/odom}。
+  \item 按 \param{speed_mps} 发布 \topic{/cmd_vel}。
+  \item 根据 \param{distance_source} 判断是否到达目标距离。
+  \item 到达后发布 0 速度并退出。
+\end{enumerate}
+
+核心参数：
+
+\begin{longtable}{L{0.24\textwidth} L{0.18\textwidth} L{0.48\textwidth}}
+\toprule
+\textbf{参数} & \textbf{常用值} & \textbf{含义} \\
+\midrule
+\endhead
+\param{distance_m} & \code{1.0} & 本次直线采集目标距离。\\
+\param{speed_mps} & \code{0.20} & 前进速度。源码中会限制在 \code{0.03--0.35}。\\
+\param{max_runtime_sec} & \code{30.0} & 超时保护，避免一直走。\\
+\param{control_hz} & \code{20.0} & 发布速度命令频率。\\
+\param{distance_source} & \code{path_s} & 停止依据，可选 \code{path_s}、\code{odom}、\code{time}。\\
+\param{cmd_vel_topic} & \topic{/cmd_vel} & 输出速度话题。\\
+\bottomrule
+\end{longtable}
+
+运行示例：
+
+\begin{lstlisting}[language=bash]
+ros2 run go2_nav2_bridge go2_direct_straight_controller \
+  --ros-args \
+  --params-file /path/to/go2_nav2_minimal_controller_params.yaml \
+  -p distance_m:=1.0 \
+  -p speed_mps:=0.20 \
+  -p distance_source:=path_s
+\end{lstlisting}
+
+\section{Nav2 客户端：把目标交给 Nav2}
+
+\rosnode{nav2_straight_path_client} 是本项目的 Nav2 action 客户端。它的工作流程是：
+
+\begin{enumerate}
+  \item 通过 TF 查询当前 \code{odom -> base_link}。
+  \item 根据当前位置生成前方 \param{distance_m} 的目标或路径。
+  \item 如果 \param{use_planner=true}，请求 planner 生成路径。
+  \item 如果 \param{use_navigate_to_pose=true}，走 BT navigator。
+  \item 否则直接发送 \actionname{FollowPath}。
+\end{enumerate}
+
+常用参数：
+
+\begin{longtable}{L{0.27\textwidth} L{0.20\textwidth} L{0.43\textwidth}}
+\toprule
+\textbf{参数} & \textbf{常用值} & \textbf{含义} \\
+\midrule
+\endhead
+\param{distance_m} & \code{0.5--1.0} & 目标距离。\\
+\param{path_resolution_m} & \code{0.10} & 自生成直线路径的点间距。\\
+\param{odom_frame} / \param{base_frame} & \code{odom} / \code{base_link} & 查询 TF 的坐标系。\\
+\param{controller_id} & \code{FollowPath} & controller server 中的插件 ID。\\
+\param{action_name} & \code{follow_path} & FollowPath action 名称。\\
+\param{use_planner} & \code{false} 或 \code{true} & 是否先请求 \actionname{ComputePathToPose}。\\
+\param{use_navigate_to_pose} & \code{false} 或 \code{true} & 是否使用 BT navigator。\\
+\param{finish_on_path_s} & \code{false} & 是否按 \topic{/go2/path_s} 到达距离后取消 action。\\
+\bottomrule
+\end{longtable}
+
+\chapter{Launch 与参数文件：本项目怎样一键启动}
+
+\section{Launch 参数}
+
+\file{go2_nav2_straight.launch.py} 提供这些入口：
+
+\begin{longtable}{L{0.28\textwidth} L{0.18\textwidth} L{0.44\textwidth}}
+\toprule
+\textbf{Launch 参数} & \textbf{默认值} & \textbf{含义} \\
+\midrule
+\endhead
+\param{params_file} & straight params & 传给 bridge/Nav2/控制器的 YAML 文件。\\
+\param{network_interface} & \code{eth0} & Unitree SDK2 DDS 使用的网卡。外部电脑常见是 \code{enp5s0}。\\
+\param{move_backend} & \code{nav2} & \code{nav2} 启动 Nav2 控制链；\code{cmd_vel} 只启动 bridge；采集脚本还支持 \code{direct}。\\
+\param{use_bt_navigator} & \code{false} & 是否启动 BT navigator 和 behavior server。\\
+\param{use_planner} & \code{false} & 是否启动 planner server。\\
+\bottomrule
+\end{longtable}
+
+\section{minimal 参数文件}
+
+\file{go2_nav2_minimal_controller_params.yaml} 适合无障碍直线采集。特点是：
+
+\begin{itemize}
+  \item \param{publish_point_cloud=false}，不依赖点云。
+  \item \param{max_vy_mps=0.0}、\param{max_wz_radps=0.0}，限制侧向和旋转。
+  \item local costmap 只有 inflation layer，不以点云避障为主。
+  \item direct controller 使用 \param{distance_source=path_s}。
+\end{itemize}
+
+它更像“稳定采 RSSI/IMU 数据”的配置，而不是完整避障导航配置。
+
+\section{straight/obstacle 参数文件}
+
+\file{go2_nav2_straight_params.yaml} 适合 Nav2 obstacle 测试。特点是：
+
+\begin{itemize}
+  \item \param{publish_point_cloud=true}，发布 \topic{/go2/pointcloud}。
+  \item local/global costmap 使用 \code{voxel_layer + inflation_layer}。
+  \item controller 使用 DWB，并允许小幅 \code{vy} 和 \code{wz}。
+  \item velocity smoother 限制速度变化。
+  \item collision monitor 设置 FrontStop、SideStop、BodySlow、SideSlow 区域。
+  \item \param{require_fresh_point_cloud_for_motion=true}，点云不新鲜时阻断运动。
+\end{itemize}
+
+\section{采集脚本如何编排 ROS 2}
+
+\file{scripts/go2_collect_straight_line_nav2.sh} 是本项目的一键采集入口。它做的事情比普通 ROS 2 launch 多：
+
+\begin{enumerate}
+  \item 检查是否已有 Go2/Nav2 进程残留。
+  \item source ROS 2 和本项目 overlay。
+  \item 检查 \pkg{go2_nav2_bridge} 是否已经 build/source。
+  \item 根据 \param{MOVE_BACKEND} 选择参数文件。
+  \item 启动 RSSI 采集、IMU logger、Go2/Nav2 launch。
+  \item 根据 backend 运行 direct controller、Nav2 client 或简单 \code{ros2 topic pub}。
+  \item 停止后台进程，复制远程 RSSI 文件，写入 \file{run_metadata.txt}。
+\end{enumerate}
+
+推荐直线采集命令：
+
+\begin{lstlisting}[language=bash]
+cd /home/luping/桌面/RSSI/RSSI/code
+
+RUN_DIR="$HOME/go2_rssi_runs/direct_1m_rssi" \
+MOVE_BACKEND=direct \
+RSSI_MODE=remote \
+ROBOT_SSH=unitree@192.168.123.18 \
+ROBOT_PROJECT_DIR=/home/unitree/rssi_go2 \
+ROBOT_NETWORK_INTERFACE=eth0 \
+BT_TTY=/dev/ttyACM1 \
+DIRECT_DISTANCE_SOURCE=path_s \
+MAX_RUNTIME_SEC=25 \
+scripts/go2_collect_straight_line_nav2.sh enp5s0 1.0 0.20 1.0 0.5
+\end{lstlisting}
+
+输出目录通常包含：
+
+\begin{itemize}
+  \item \file{rssi_realtime_windows.csv}
+  \item \file{rssi_raw_stream.csv}
+  \item \file{imu_stream.csv} 或 \file{remote_imu_stream.csv}
+  \item \file{nav2_launch.log}
+  \item \file{run_metadata.txt}
+\end{itemize}
+
+\chapter{构建、运行和调试}
+\label{chap:run-debug}
+
+\section{从零构建}
+
+外部电脑推荐 Ubuntu 22.04 + ROS 2 Humble：
+
+\begin{lstlisting}[language=bash]
+cd /home/luping/桌面/RSSI/RSSI/code/ros2_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select go2_nav2_bridge
+source install/setup.bash
+\end{lstlisting}
+
+检查：
+
+\begin{lstlisting}[language=bash]
+ros2 pkg prefix go2_nav2_bridge
+ros2 pkg executables go2_nav2_bridge
+\end{lstlisting}
+
+应该能看到：
+
+\begin{itemize}
+  \item \code{go2_nav2_bridge}
+  \item \code{go2_direct_straight_controller}
+  \item \code{nav2_straight_path_client}
+\end{itemize}
+
+\section{只启动 bridge}
+
+用于检查 Go2 DDS、odom、IMU、path\_s：
+
+\begin{lstlisting}[language=bash]
+ros2 run go2_nav2_bridge go2_nav2_bridge \
+  --ros-args \
+  --params-file /path/to/go2_nav2_minimal_controller_params.yaml \
+  -p network_interface:=enp5s0
+\end{lstlisting}
+
+另一个终端检查：
+
+\begin{lstlisting}[language=bash]
+ros2 topic hz /odom
+ros2 topic hz /go2/imu
+ros2 topic echo /go2/path_s
+ros2 run tf2_ros tf2_echo odom base_link
+\end{lstlisting}
+
+\section{手动发速度命令}
+
+只在安全空旷环境做短时间测试：
+
+\begin{lstlisting}[language=bash]
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.05, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" \
+  --times 20
+
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
+\end{lstlisting}
+
+\section{直线采集推荐路径}
+
+推荐优先使用：
+
+\begin{lstlisting}[language=bash]
+MOVE_BACKEND=direct RSSI_MODE=off MAX_RUNTIME_SEC=20 \
+scripts/go2_collect_straight_line_nav2.sh enp5s0 1.0 0.20 1.0 0.5
+\end{lstlisting}
+
+确认稳定后再打开 RSSI：
+
+\begin{lstlisting}[language=bash]
+MOVE_BACKEND=direct RSSI_MODE=remote \
+ROBOT_SSH=unitree@192.168.123.18 \
+scripts/go2_collect_straight_line_nav2.sh enp5s0 1.0 0.20 1.0 0.5
+\end{lstlisting}
+
+\section{Nav2 感知链路诊断}
+
+在 obstacle/Nav2 测试前，先不运动，只检查点云和 costmap：
+
+\begin{lstlisting}[language=bash]
+RUN_DIR="$HOME/go2_rssi_runs/nav2_perception_diag" \
+scripts/go2_diagnose_nav2_perception.sh enp5s0 12
+\end{lstlisting}
+
+诊断脚本会订阅：
+
+\begin{itemize}
+  \item \topic{/go2/pointcloud}
+  \item \topic{/local_costmap/costmap}
+\end{itemize}
+
+并统计 front stop、side stop、body slow 等区域内点云数量。若点云 frame、外参或自过滤不对，先修这些，不要直接做运动测试。
+
+\section{常用排查命令}
+
+\begin{longtable}{L{0.34\textwidth} L{0.56\textwidth}}
+\toprule
+\textbf{命令} & \textbf{用途} \\
+\midrule
+\endhead
+\code{ros2 node list} & 看节点是否启动。\\
+\code{ros2 node info /go2_nav2_bridge} & 看 bridge 发布/订阅了哪些话题。\\
+\code{ros2 topic list} & 看当前所有 topic。\\
+\code{ros2 topic hz /go2/imu} & 看 IMU 是否持续发布。\\
+\code{ros2 topic echo /go2/path_s} & 看累计路径进度是否变化。\\
+\code{ros2 topic echo /cmd_vel} & 看最终进入 bridge 的速度命令。\\
+\code{ros2 param get /go2_nav2_bridge max_vx_mps} & 查 bridge 速度限幅。\\
+\code{ros2 lifecycle get /controller_server} & 查 Nav2 controller 是否 active。\\
+\code{ros2 run tf2_ros tf2_echo odom base_link} & 查 TF 是否可用。\\
+\code{tail -n 220 "$RUN_DIR/nav2_launch.log"} & 查采集 run 的 ROS 2/Nav2 日志。\\
+\bottomrule
+\end{longtable}
+
+\chapter{ROS 2 和 RSSI/IMU 融合算法的关系}
+
+\section{ROS 2 不直接等于融合算法}
+
+本项目中，ROS 2 是数据和控制基础设施；RSSI/IMU 融合算法是定位研究主线。二者关系如下：
+
+\begin{itemize}
+  \item ROS 2 bridge 提供 \topic{/odom}、\topic{/go2/imu}、\topic{/go2/path_s}。
+  \item RSSI 采集程序提供 \file{rssi_realtime_windows.csv}。
+  \item 采集脚本把 RSSI、IMU、ROS 2 日志放到同一个 run directory。
+  \item 融合算法按时间戳对齐 RSSI window 与 IMU/odom，输出预测路径进度 \(\hat{s}\)。
+  \item Nav2 localization 输出不作为 RSSI 主算法输入，可以作为调试或对照参考。
+\end{itemize}
+
+\section{一条数据怎样进入训练或评估}
+
+一次直线采集大致产生：
+
+\begin{lstlisting}
+run_dir/
+  rssi_realtime_windows.csv
+  rssi_raw_stream.csv
+  imu_stream.csv
+  remote_imu_stream.csv
+  nav2_launch.log
+  run_metadata.txt
+\end{lstlisting}
+
+融合算法使用它们时，直白流程是：
+
+\begin{enumerate}
+  \item RSSI window 给出当前无线指纹。
+  \item IMU/odom 给出这个窗口附近的运动趋势和短时位移。
+  \item 真实采集路线定义全局中心线 \(s\)。
+  \item 训练时把 RSSI/IMU/odom 特征和真实 \(s\) 对齐。
+  \item 在线时 RSSI 先猜位置，IMU/odom 限制跳变和短时连续性，最后输出 \(\hat{s}\)。
+\end{enumerate}
+
+\chapter{常见问题}
+
+\section{ros2 run 找不到节点}
+
+检查三件事：
+
+\begin{lstlisting}[language=bash]
+source /opt/ros/humble/setup.bash
+source /home/luping/桌面/RSSI/RSSI/code/ros2_ws/install/setup.bash
+ros2 pkg executables go2_nav2_bridge
+\end{lstlisting}
+
+如果没有 executables，重新 build。
+
+\section{/odom 和 /go2/imu 没有数据}
+
+可能原因：
+
+\begin{itemize}
+  \item \param{network_interface} 错了。
+  \item Unitree DDS 网络没有连通。
+  \item Unitree SDK2 动态库路径没有加入 \code{LD_LIBRARY_PATH}。
+  \item bridge 没启动或启动后报错退出。
+\end{itemize}
+
+优先看：
+
+\begin{lstlisting}[language=bash]
+tail -n 120 "$RUN_DIR/nav2_launch.log"
+ros2 node list
+ros2 topic list
+\end{lstlisting}
+
+\section{Nav2 active 了但机器人不动}
+
+按顺序查：
+
+\begin{enumerate}
+  \item \code{ros2 topic echo /cmd_vel_nav}：Nav2 controller 有没有输出。
+  \item \code{ros2 topic echo /cmd_vel_smoothed}：velocity smoother 有没有输出。
+  \item \code{ros2 topic echo /cmd_vel}：collision monitor 后还有没有最终速度。
+  \item \code{ros2 param get /go2_nav2_bridge require_fresh_point_cloud_for_motion}：是否要求新鲜点云。
+  \item \code{ros2 run tf2_ros tf2_echo odom base_link}：TF 是否正常。
+\end{enumerate}
+
+\section{点云导致机器人一直停}
+
+如果 obstacle 参数中开启 \param{require_fresh_point_cloud_for_motion=true}，点云不更新或 frame 不对会阻断非零速度。先运行：
+
+\begin{lstlisting}[language=bash]
+scripts/go2_diagnose_nav2_perception.sh enp5s0 12
+\end{lstlisting}
+
+确认 \topic{/go2/pointcloud}、\topic{/local_costmap/costmap}、collision monitor 区域统计正常后，再做运动测试。
+
+\section{什么时候用 direct，什么时候用 Nav2}
+
+\begin{longtable}{L{0.24\textwidth} L{0.62\textwidth}}
+\toprule
+\textbf{模式} & \textbf{适合场景} \\
+\midrule
+\endhead
+\code{MOVE_BACKEND=direct} & 推荐用于 RSSI/IMU 直线采集。链路短、变量少、结果更容易复现。\\
+\code{MOVE_BACKEND=cmd_vel} & 最简单的手动/脚本速度测试，只适合短距离安全检查。\\
+\code{MOVE_BACKEND=nav2} & 用于 obstacle、local planning、collision monitor 对照实验。调试成本更高，必须先确认点云和 TF 正常。\\
+\bottomrule
+\end{longtable}
+
+\chapter{学习路线}
+
+作为 ROS 2 新手，建议用本项目按以下顺序练习：
+
+\begin{enumerate}
+  \item 只 build \pkg{go2_nav2_bridge}，确认 \code{ros2 pkg executables} 能看到三个节点。
+  \item 只启动 \rosnode{go2_nav2_bridge}，观察 \topic{/odom}、\topic{/go2/imu}、\topic{/go2/path_s}。
+  \item 用 \code{ros2 topic pub} 发很短的 \topic{/cmd_vel}，确认 bridge 能控制 Go2。
+  \item 运行 \rosnode{go2_direct_straight_controller}，理解 topic 闭环。
+  \item 运行 \file{go2_collect_straight_line_nav2.sh}，理解 run directory 和采集文件。
+  \item 运行 \file{go2_diagnose_nav2_perception.sh}，理解点云、costmap、QoS 和 TF。
+  \item 最后再进入 Nav2 FollowPath、planner、BT navigator。
+\end{enumerate}
+
+\begin{notebox}{最重要的心智模型}
+ROS 2 不是一个单独的大程序，而是一组节点通过标准接口组合起来。本项目里最稳的理解方式是沿着数据流看：Go2 DDS 进入 bridge，bridge 发布 ROS 2 标准话题，控制器或 Nav2 发布速度，bridge 把速度交给 Go2，采集脚本把 RSSI/IMU/odom/log 保存给融合算法使用。
+\end{notebox}
+
+\end{document}

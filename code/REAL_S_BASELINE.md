@@ -1,6 +1,6 @@
 # Real `s-only` RSSI Baseline
 
-This baseline is for the robot project, not for IMUWiFine trajectory `s`.
+This baseline is for the robot project's global path progress `s`.
 
 ## Expected CSV format
 

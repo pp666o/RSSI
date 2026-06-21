@@ -5,6 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   scripts/go2_collect_rssi_imu.sh <networkInterface> [duration_sec] [window_sec] [step_sec] [marker_step_m] [start_s_m]
+  scripts/go2_collect_rssi_imu.sh --preflight <networkInterface> [duration_sec] [window_sec] [step_sec] [marker_step_m] [start_s_m]
 
 Examples:
   scripts/go2_collect_rssi_imu.sh eth0 30
@@ -21,8 +22,16 @@ Environment:
   IMU_ACC_TO_G_SCALE      Optional override for Go2 accelerometer scale.
   IMU_GYRO_TO_DPS_SCALE   Optional override for Go2 gyroscope scale.
   IMU_ANGLE_TO_DEG_SCALE  Optional override for Go2 rpy angle scale.
+  SUDO_NONINTERACTIVE     Set to 1 for remote/background runs. sudo uses -n
+                          and fails immediately if passwordless sudo is not configured.
 USAGE
 }
+
+preflight_only=0
+if [[ "${1:-}" == "--preflight" ]]; then
+  preflight_only=1
+  shift
+fi
 
 if [[ $# -lt 1 ]]; then
   usage
@@ -42,6 +51,27 @@ run_dir="${RUN_DIR:-$HOME/go2_rssi_runs/$(date +%Y%m%d_%H%M%S)}"
 imu_logger="$project_root/unitree_sdk2/build_go2/bin/go2_imu_logger"
 scan_script="$project_root/bt_migrate_pack/start_coded_scan.sh"
 attach_script="$project_root/bt_migrate_pack/go2_attach_ttyacm.sh"
+
+sudo_cmd() {
+  if [[ "${EUID}" -eq 0 ]]; then
+    "$@"
+  elif [[ "${SUDO_NONINTERACTIVE:-0}" == "1" ]]; then
+    sudo -n "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+sudo_check() {
+  if [[ "${EUID}" -eq 0 ]]; then
+    return 0
+  fi
+  if [[ "${SUDO_NONINTERACTIVE:-0}" == "1" ]]; then
+    sudo -n true
+  else
+    sudo -v
+  fi
+}
 
 if [[ -n "${RSSI_BINARY:-}" ]]; then
   rssi_binary="$RSSI_BINARY"
@@ -75,6 +105,32 @@ if [[ ! -x "$rssi_binary" ]]; then
   exit 1
 fi
 
+if [[ "$preflight_only" == "1" ]]; then
+  echo "Remote RSSI preflight"
+  echo "project_root=$project_root"
+  echo "network_interface=$network_interface"
+  echo "rssi_binary=$rssi_binary"
+  echo "imu_logger=$imu_logger"
+
+  if ! ip link show "$network_interface" >/dev/null 2>&1; then
+    echo "Network interface not found: $network_interface" >&2
+    exit 1
+  fi
+
+  if ! command -v btattach >/dev/null 2>&1; then
+    echo "Missing command: btattach" >&2
+    exit 1
+  fi
+  if ! command -v hciconfig >/dev/null 2>&1; then
+    echo "Missing command: hciconfig" >&2
+    exit 1
+  fi
+  if ! command -v hcitool >/dev/null 2>&1; then
+    echo "Missing command: hcitool" >&2
+    exit 1
+  fi
+fi
+
 mkdir -p "$run_dir"
 echo "Output directory: $run_dir"
 
@@ -97,10 +153,10 @@ cleanup() {
     wait "$imu_pid" 2>/dev/null || true
   fi
   if [[ "${BTATTACH_CLEANUP:-0}" == "1" && "$btattach_started" == "1" && -n "$btattach_pid" ]]; then
-    sudo kill "$btattach_pid" 2>/dev/null || true
+    sudo_cmd kill "$btattach_pid" 2>/dev/null || true
     wait "$btattach_pid" 2>/dev/null || true
   fi
-  sudo chown -R "$(id -u):$(id -g)" "$run_dir" 2>/dev/null || true
+  sudo_cmd chown -R "$(id -u):$(id -g)" "$run_dir" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -132,13 +188,18 @@ case "$bt_attach_mode" in
     ;;
 esac
 
-sudo bash "$scan_script" "${HCI_DEV:-hci0}"
+SUDO_NONINTERACTIVE="${SUDO_NONINTERACTIVE:-0}" bash "$scan_script" "${HCI_DEV:-hci0}"
+
+if [[ "$preflight_only" == "1" ]]; then
+  echo "preflight_ok=1"
+  exit 0
+fi
 
 "$imu_logger" "${imu_args[@]}" &
 imu_pid=$!
 
 cd "$run_dir"
-sudo "$rssi_binary" "$duration_sec" rssi_realtime_windows.csv \
+sudo_cmd "$rssi_binary" "$duration_sec" rssi_realtime_windows.csv \
   "$window_sec" "$step_sec" "$marker_step_m" "$start_s_m" none
 
 echo "Done. Output directory: $run_dir"
