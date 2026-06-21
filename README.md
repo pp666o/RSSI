@@ -83,7 +83,7 @@ Outputs:
 - fingerprint map CSV
 - optional per-file summary CSV
 
-### 2. Fingerprint baseline
+### 2. RSSI fingerprint baseline
 
 Example:
 
@@ -216,4 +216,4 @@ ros2 topic echo /path_localization_debug
 - The robot `s` baseline uses path progress `s` as the main target.
 - Missing RSSI markers such as `-999` are converted internally to a weak RSSI value.
 - For ROS2 online use, the beacon order in the incoming topic should match the localizer model order.
-- The current repository focuses on RSSI-based localization. IMU fusion can be added later as a motion prior or temporal constraint layer.
+- IMU and odom streams can be used as motion priors or temporal constraints around the RSSI fingerprint estimate.
