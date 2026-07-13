@@ -19,13 +19,13 @@ import csv
 import json
 import math
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Tuple
 
 from decode_go2_voxel_map import decompress_lz4_block, load_metadata
 
 
-Point = tuple[float, float, float]
-GridKey = tuple[int, int, int]
+Point = Tuple[float, float, float]
+GridKey = Tuple[int, int, int]
 
 
 def wrap_angle(angle: float) -> float:
