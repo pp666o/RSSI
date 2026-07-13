@@ -58,6 +58,7 @@ ament_target_dependencies(go2_nav2_bridge
   geometry_msgs
   nav_msgs
   sensor_msgs
+  std_msgs
   tf2
   tf2_ros)
 target_link_libraries(go2_nav2_bridge
@@ -65,26 +66,6 @@ target_link_libraries(go2_nav2_bridge
   "${UNITREE_DDSCXX_LIB}"
   "${UNITREE_DDSC_LIB}")
 set_target_properties(go2_nav2_bridge PROPERTIES
-  BUILD_RPATH "${UNITREE_SDK2_DIR}/lib/${UNITREE_SDK2_ARCH};${UNITREE_SDK2_DIR}/thirdparty/lib/${UNITREE_SDK2_ARCH}"
-  INSTALL_RPATH "${UNITREE_SDK2_DIR}/lib/${UNITREE_SDK2_ARCH};${UNITREE_SDK2_DIR}/thirdparty/lib/${UNITREE_SDK2_ARCH}"
-  LINK_FLAGS "-Wl,--disable-new-dtags")
-
-add_executable(go2_voxel_map_visualizer src/go2_voxel_map_visualizer.cpp)
-target_include_directories(go2_voxel_map_visualizer PRIVATE
-  "${UNITREE_SDK2_DIR}/include"
-  "${UNITREE_SDK2_DIR}/thirdparty/include"
-  "${UNITREE_SDK2_DIR}/thirdparty/include/ddscxx")
-ament_target_dependencies(go2_voxel_map_visualizer
-  rclcpp
-  sensor_msgs
-  geometry_msgs
-  std_msgs
-  visualization_msgs)
-target_link_libraries(go2_voxel_map_visualizer
-  "${UNITREE_SDK2_LIB}"
-  "${UNITREE_DDSCXX_LIB}"
-  "${UNITREE_DDSC_LIB}")
-set_target_properties(go2_voxel_map_visualizer PROPERTIES
   BUILD_RPATH "${UNITREE_SDK2_DIR}/lib/${UNITREE_SDK2_ARCH};${UNITREE_SDK2_DIR}/thirdparty/lib/${UNITREE_SDK2_ARCH}"
   INSTALL_RPATH "${UNITREE_SDK2_DIR}/lib/${UNITREE_SDK2_ARCH};${UNITREE_SDK2_DIR}/thirdparty/lib/${UNITREE_SDK2_ARCH}"
   LINK_FLAGS "-Wl,--disable-new-dtags")
@@ -114,13 +95,41 @@ ament_target_dependencies(go2_waypoint_follower
   rclcpp
   geometry_msgs
   nav_msgs
+  std_msgs
   tf2)
+
+add_executable(go2_pose_path_visualizer src/go2_pose_path_visualizer.cpp)
+ament_target_dependencies(go2_pose_path_visualizer
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  visualization_msgs)
+
+add_executable(go2_voxel_map_visualizer src/go2_voxel_map_visualizer.cpp)
+target_include_directories(go2_voxel_map_visualizer PRIVATE
+  "${UNITREE_SDK2_DIR}/include"
+  "${UNITREE_SDK2_DIR}/thirdparty/include"
+  "${UNITREE_SDK2_DIR}/thirdparty/include/ddscxx")
+ament_target_dependencies(go2_voxel_map_visualizer
+  rclcpp
+  sensor_msgs
+  std_msgs
+  visualization_msgs)
+target_link_libraries(go2_voxel_map_visualizer
+  "${UNITREE_SDK2_LIB}"
+  "${UNITREE_DDSCXX_LIB}"
+  "${UNITREE_DDSC_LIB}")
+set_target_properties(go2_voxel_map_visualizer PROPERTIES
+  BUILD_RPATH "${UNITREE_SDK2_DIR}/lib/${UNITREE_SDK2_ARCH};${UNITREE_SDK2_DIR}/thirdparty/lib/${UNITREE_SDK2_ARCH}"
+  INSTALL_RPATH "${UNITREE_SDK2_DIR}/lib/${UNITREE_SDK2_ARCH};${UNITREE_SDK2_DIR}/thirdparty/lib/${UNITREE_SDK2_ARCH}"
+  LINK_FLAGS "-Wl,--disable-new-dtags")
 
 set(GO2_NAV2_BRIDGE_TARGETS
   go2_nav2_bridge
-  go2_voxel_map_visualizer
   go2_direct_straight_controller
-  go2_waypoint_follower)
+  go2_waypoint_follower
+  go2_pose_path_visualizer
+  go2_voxel_map_visualizer)
 
 if(BUILD_NAV2_STRAIGHT_PATH_CLIENT)
   list(APPEND GO2_NAV2_BRIDGE_TARGETS nav2_straight_path_client)

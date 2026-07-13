@@ -1,33 +1,41 @@
 #include <algorithm>
-#include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <geometry_msgs/msg/point.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/point_field.hpp>
-#include <std_msgs/msg/color_rgba.hpp>
+#include <std_msgs/msg/header.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
 #include <unitree/idl/go2/VoxelMapCompressed_.hpp>
 #include <unitree/robot/channel/channel_factory.hpp>
 #include <unitree/robot/channel/channel_subscriber.hpp>
 
+using namespace std::chrono_literals;
+
 namespace
 {
+constexpr int kExpectedX = 128;
+constexpr int kExpectedY = 128;
+constexpr int kExpectedZ = 38;
+constexpr std::size_t kExpectedDecodedBytes =
+  static_cast<std::size_t>(kExpectedX) * kExpectedY * kExpectedZ / 8;
+
 std::atomic_bool g_unitree_channel_factory_initialized{false};
 
 void initUnitreeChannelFactoryOnce(const std::string & network_interface)
 {
   if (network_interface.empty()) {
-    throw std::runtime_error("go2_voxel_map_visualizer requires parameter network_interface.");
+    throw std::runtime_error("network_interface is required, for example enp5s0");
   }
 
   bool expected = false;
@@ -36,121 +44,100 @@ void initUnitreeChannelFactoryOnce(const std::string & network_interface)
   }
 }
 
-double clamp(double value, double lower, double upper)
-{
-  return std::min(std::max(value, lower), upper);
-}
-
 std::vector<uint8_t> decompressLz4Block(
-  const std::vector<uint8_t> & input, std::size_t expected_size)
+  const std::vector<uint8_t> & payload,
+  std::size_t expected_size)
 {
   std::size_t ip = 0;
-  std::vector<uint8_t> output;
-  output.reserve(expected_size);
+  std::vector<uint8_t> out;
+  out.reserve(expected_size);
 
-  auto readExtendedLength = [&input, &ip](std::size_t base) {
-      std::size_t length = base;
-      if (base == 15) {
-        while (true) {
-          if (ip >= input.size()) {
-            throw std::runtime_error("truncated LZ4 extended length");
-          }
-          const auto value = static_cast<std::size_t>(input[ip++]);
-          length += value;
-          if (value != 255) {
-            break;
-          }
+  while (ip < payload.size()) {
+    const uint8_t token = payload[ip++];
+
+    std::size_t literal_len = token >> 4;
+    if (literal_len == 15) {
+      while (true) {
+        if (ip >= payload.size()) {
+          throw std::runtime_error("truncated LZ4 literal length");
+        }
+        const uint8_t value = payload[ip++];
+        literal_len += value;
+        if (value != 255) {
+          break;
         }
       }
-      return length;
-    };
+    }
 
-  while (ip < input.size()) {
-    const uint8_t token = input[ip++];
-
-    const std::size_t literal_length = readExtendedLength(token >> 4);
-    if (ip + literal_length > input.size()) {
+    if (ip + literal_len > payload.size()) {
       throw std::runtime_error("LZ4 literal section exceeds payload");
     }
-    output.insert(output.end(), input.begin() + static_cast<std::ptrdiff_t>(ip),
-      input.begin() + static_cast<std::ptrdiff_t>(ip + literal_length));
-    ip += literal_length;
+    out.insert(out.end(), payload.begin() + static_cast<std::ptrdiff_t>(ip),
+      payload.begin() + static_cast<std::ptrdiff_t>(ip + literal_len));
+    ip += literal_len;
 
-    if (ip >= input.size()) {
+    if (ip >= payload.size()) {
       break;
     }
-    if (ip + 2 > input.size()) {
-      throw std::runtime_error("LZ4 match offset is missing");
-    }
 
-    const std::size_t offset =
-      static_cast<std::size_t>(input[ip]) |
-      (static_cast<std::size_t>(input[ip + 1]) << 8);
+    if (ip + 2 > payload.size()) {
+      throw std::runtime_error("missing LZ4 match offset");
+    }
+    const std::size_t offset = static_cast<std::size_t>(payload[ip]) |
+      (static_cast<std::size_t>(payload[ip + 1]) << 8);
     ip += 2;
-    if (offset == 0 || offset > output.size()) {
+    if (offset == 0 || offset > out.size()) {
       throw std::runtime_error("invalid LZ4 match offset");
     }
 
-    std::size_t match_length = readExtendedLength(token & 0x0F) + 4;
-    while (match_length-- > 0) {
-      output.push_back(output[output.size() - offset]);
-      if (output.size() > expected_size) {
-        throw std::runtime_error("LZ4 decoded output exceeds expected size");
+    std::size_t match_len = token & 0x0F;
+    if (match_len == 15) {
+      while (true) {
+        if (ip >= payload.size()) {
+          throw std::runtime_error("truncated LZ4 match length");
+        }
+        const uint8_t value = payload[ip++];
+        match_len += value;
+        if (value != 255) {
+          break;
+        }
+      }
+    }
+    match_len += 4;
+
+    for (std::size_t i = 0; i < match_len; ++i) {
+      out.push_back(out[out.size() - offset]);
+      if (out.size() > expected_size) {
+        throw std::runtime_error("LZ4 output exceeds expected voxel bitmap size");
       }
     }
   }
 
-  if (output.size() != expected_size) {
+  if (out.size() != expected_size) {
     throw std::runtime_error(
-            "LZ4 decoded size " + std::to_string(output.size()) +
-            " != expected " + std::to_string(expected_size));
+      "LZ4 output size " + std::to_string(out.size()) +
+      " != expected " + std::to_string(expected_size));
   }
-  return output;
+
+  return out;
 }
 
-std_msgs::msg::ColorRGBA heightColor(double t, double alpha)
-{
-  t = clamp(t, 0.0, 1.0);
-
-  std_msgs::msg::ColorRGBA color;
-  color.a = static_cast<float>(alpha);
-
-  auto lerp = [](double a, double b, double u) {
-      return static_cast<float>(a + (b - a) * u);
-    };
-
-  if (t < 0.35) {
-    const double u = t / 0.35;
-    color.r = 0.0f;
-    color.g = 1.0f;
-    color.b = lerp(1.0, 0.0, u);
-  } else if (t < 0.60) {
-    const double u = (t - 0.35) / 0.25;
-    color.r = lerp(0.0, 1.0, u);
-    color.g = 1.0f;
-    color.b = 0.0f;
-  } else if (t < 0.80) {
-    const double u = (t - 0.60) / 0.20;
-    color.r = 1.0f;
-    color.g = lerp(1.0, 0.45, u);
-    color.b = 0.0f;
-  } else {
-    const double u = (t - 0.80) / 0.20;
-    color.r = 1.0f;
-    color.g = lerp(0.45, 0.0, u);
-    color.b = lerp(0.0, 1.0, u);
-  }
-  return color;
-}
-
-sensor_msgs::msg::PointField makeFloatField(const std::string & name, uint32_t offset)
+void addPointField(
+  sensor_msgs::msg::PointCloud2 & cloud,
+  const std::string & name,
+  uint32_t offset)
 {
   sensor_msgs::msg::PointField field;
   field.name = name;
   field.offset = offset;
   field.datatype = sensor_msgs::msg::PointField::FLOAT32;
   field.count = 1;
-  return field;
+  cloud.fields.push_back(field);
+}
+
+void writeFloat32(std::vector<uint8_t> & data, std::size_t offset, float value)
+{
+  std::memcpy(data.data() + offset, &value, sizeof(float));
 }
 }  // namespace
 
@@ -160,200 +147,192 @@ public:
   Go2VoxelMapVisualizer()
   : Node("go2_voxel_map_visualizer")
   {
-    network_interface_ = declare_parameter<std::string>("network_interface", "enp5s0");
+    network_interface_ = declare_parameter<std::string>("network_interface", "");
     voxel_topic_ = declare_parameter<std::string>(
       "voxel_topic", "rt/utlidar/voxel_map_compressed");
-    points_topic_ = declare_parameter<std::string>("points_topic", "/go2/voxel_map_points");
-    marker_topic_ = declare_parameter<std::string>("marker_topic", "/go2/voxel_map_marker");
-    publish_points_ = declare_parameter<bool>("publish_points", true);
-    publish_marker_ = declare_parameter<bool>("publish_marker", true);
+    points_topic_ = declare_parameter<std::string>(
+      "points_topic", "/go2/voxel_map_points");
+    marker_topic_ = declare_parameter<std::string>(
+      "marker_topic", "/go2/voxel_map_marker");
+    output_frame_ = declare_parameter<std::string>("output_frame", "odom");
     bit_order_ = declare_parameter<std::string>("bit_order", "lsb");
-    downsample_stride_ = std::max<int>(1, declare_parameter<int>("downsample_stride", 1));
-    marker_alpha_ = clamp(declare_parameter<double>("marker_alpha", 0.85), 0.05, 1.0);
-    marker_scale_multiplier_ =
-      clamp(declare_parameter<double>("marker_scale_multiplier", 1.0), 0.1, 3.0);
-    marker_lifetime_sec_ =
-      clamp(declare_parameter<double>("marker_lifetime_sec", 0.25), 0.0, 5.0);
-    min_z_ = declare_parameter<double>("min_z", -1000.0);
-    max_z_ = declare_parameter<double>("max_z", 1000.0);
+    publish_marker_ = declare_parameter<bool>("publish_marker", true);
+    marker_max_voxels_ = declare_parameter<int>("marker_max_voxels", 60000);
+    log_every_n_frames_ = declare_parameter<int>("log_every_n_frames", 20);
 
     if (bit_order_ != "lsb" && bit_order_ != "msb") {
-      throw std::runtime_error("bit_order must be 'lsb' or 'msb'.");
-    }
-    if (min_z_ > max_z_) {
-      throw std::runtime_error("min_z must be <= max_z.");
+      throw std::runtime_error("bit_order must be lsb or msb");
     }
 
     initUnitreeChannelFactoryOnce(network_interface_);
 
-    if (publish_points_) {
-      points_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        points_topic_, rclcpp::QoS(5).reliable());
-    }
-    if (publish_marker_) {
-      marker_pub_ = create_publisher<visualization_msgs::msg::Marker>(
-        marker_topic_, rclcpp::QoS(5).reliable());
-    }
+    points_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      points_topic_, rclcpp::SensorDataQoS().reliable());
+    marker_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+      marker_topic_, rclcpp::QoS(1).reliable());
 
-    voxel_sub_.reset(
-      new unitree::robot::ChannelSubscriber<unitree_go::msg::dds_::VoxelMapCompressed_>(
-        voxel_topic_));
+    voxel_sub_ =
+      std::make_shared<unitree::robot::ChannelSubscriber<unitree_go::msg::dds_::VoxelMapCompressed_>>(
+        voxel_topic_);
     voxel_sub_->InitChannel(
-      std::bind(&Go2VoxelMapVisualizer::onVoxelMap, this, std::placeholders::_1), 5);
+      [this](const void * message) { onVoxel(message); }, 20);
 
     RCLCPP_INFO(
       get_logger(),
-      "Go2 voxel visualizer started. DDS interface=%s voxel_topic=%s points=%s marker=%s bit_order=%s",
+      "Go2 voxel map visualizer started: iface=%s dds=%s points=%s marker=%s frame=%s bit_order=%s",
       network_interface_.c_str(), voxel_topic_.c_str(), points_topic_.c_str(),
-      marker_topic_.c_str(), bit_order_.c_str());
+      marker_topic_.c_str(), output_frame_.c_str(), bit_order_.c_str());
   }
 
 private:
-  struct VoxelPoint
+  void onVoxel(const void * message)
   {
-    float x;
-    float y;
-    float z;
-    float intensity;
-  };
+    const auto & msg = *static_cast<const unitree_go::msg::dds_::VoxelMapCompressed_ *>(message);
+    ++frame_count_;
 
-  void onVoxelMap(const void * message)
-  {
-    const auto & msg =
-      *static_cast<const unitree_go::msg::dds_::VoxelMapCompressed_ *>(message);
+    const int width_x = static_cast<int>(msg.width()[0]);
+    const int width_y = static_cast<int>(msg.width()[1]);
+    const int width_z = static_cast<int>(msg.width()[2]);
+    const std::size_t src_size = static_cast<std::size_t>(msg.src_size());
 
-    const auto width = msg.width();
-    const std::size_t wx = width[0];
-    const std::size_t wy = width[1];
-    const std::size_t wz = width[2];
-    const std::size_t total_voxels = wx * wy * wz;
-    const std::size_t expected_bitpacked_size = (total_voxels + 7) / 8;
-    const std::size_t expected_size = static_cast<std::size_t>(msg.src_size());
-
-    if (expected_size != expected_bitpacked_size) {
+    if (width_x != kExpectedX || width_y != kExpectedY || width_z != kExpectedZ ||
+      src_size != kExpectedDecodedBytes)
+    {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000,
-        "VoxelMapCompressed src_size=%zu but width product expects %zu bytes.",
-        expected_size, expected_bitpacked_size);
+        "Unexpected voxel metadata: width=[%d,%d,%d] src_size=%zu expected=[128,128,38]/77824",
+        width_x, width_y, width_z, src_size);
     }
 
     std::vector<uint8_t> decoded;
     try {
-      decoded = decompressLz4Block(msg.data(), expected_size);
-    } catch (const std::exception & error) {
+      decoded = decompressLz4Block(msg.data(), kExpectedDecodedBytes);
+    } catch (const std::exception & ex) {
       RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 1000,
-        "Failed to decode VoxelMapCompressed as raw LZ4 block: %s", error.what());
+        get_logger(), *get_clock(), 2000,
+        "Failed to decode raw LZ4 voxel block: %s data_size=%zu src_size=%zu",
+        ex.what(), msg.data().size(), src_size);
       return;
     }
 
-    std::vector<VoxelPoint> points;
-    points.reserve(std::min<std::size_t>(total_voxels, 20000));
-
-    const auto & origin = msg.origin();
-    const double resolution = msg.resolution();
-    int occupied_count = 0;
-    for (std::size_t linear = 0; linear < total_voxels; linear += downsample_stride_) {
-      const uint8_t byte = decoded[linear / 8];
-      const int bit_index = static_cast<int>(linear % 8);
-      const bool occupied = bit_order_ == "msb" ?
-        ((byte >> (7 - bit_index)) & 0x01) != 0 :
-        ((byte >> bit_index) & 0x01) != 0;
-      if (!occupied) {
-        continue;
-      }
-
-      const std::size_t ix = linear % wx;
-      const std::size_t iy = (linear / wx) % wy;
-      const std::size_t iz = linear / (wx * wy);
-      const double z = origin[2] + (static_cast<double>(iz) + 0.5) * resolution;
-      if (z < min_z_ || z > max_z_) {
-        continue;
-      }
-
-      VoxelPoint point;
-      point.x = static_cast<float>(origin[0] + (static_cast<double>(ix) + 0.5) * resolution);
-      point.y = static_cast<float>(origin[1] + (static_cast<double>(iy) + 0.5) * resolution);
-      point.z = static_cast<float>(z);
-      point.intensity = static_cast<float>(iz) / static_cast<float>(std::max<std::size_t>(1, wz - 1));
-      points.push_back(point);
-      ++occupied_count;
-    }
-
     const auto stamp = now();
-    if (points_pub_) {
-      publishPointCloud(stamp, msg.frame_id(), points);
-    }
-    if (marker_pub_) {
-      publishMarker(stamp, msg.frame_id(), points, resolution);
+    const std::string frame = output_frame_.empty() ? msg.frame_id() : output_frame_;
+    const float resolution = static_cast<float>(msg.resolution());
+    const float origin_x = static_cast<float>(msg.origin()[0]);
+    const float origin_y = static_cast<float>(msg.origin()[1]);
+    const float origin_z = static_cast<float>(msg.origin()[2]);
+
+    std::vector<std::array<float, 4>> points;
+    points.reserve(32000);
+
+    const int total = kExpectedX * kExpectedY * kExpectedZ;
+    for (int linear = 0; linear < total; ++linear) {
+      const uint8_t byte = decoded[static_cast<std::size_t>(linear / 8)];
+      const int bit_index = linear % 8;
+      const int bit = bit_order_ == "msb" ?
+        ((byte >> (7 - bit_index)) & 1) :
+        ((byte >> bit_index) & 1);
+      if (bit == 0) {
+        continue;
+      }
+
+      const int ix = linear % kExpectedX;
+      const int iy = (linear / kExpectedX) % kExpectedY;
+      const int iz = linear / (kExpectedX * kExpectedY);
+      const float x = origin_x + (static_cast<float>(ix) + 0.5f) * resolution;
+      const float y = origin_y + (static_cast<float>(iy) + 0.5f) * resolution;
+      const float z = origin_z + (static_cast<float>(iz) + 0.5f) * resolution;
+      const float intensity = static_cast<float>(iz);
+      points.push_back({x, y, z, intensity});
     }
 
-    RCLCPP_INFO_THROTTLE(
-      get_logger(), *get_clock(), 1000,
-      "voxel_map stamp=%.3f frame=%s resolution=%.3f width=%ux%ux%u compressed=%zu decoded=%zu occupied=%d published=%zu",
-      msg.stamp(), msg.frame_id().c_str(), resolution,
-      width[0], width[1], width[2], msg.data().size(), decoded.size(),
-      occupied_count, points.size());
+    publishPointCloud(points, stamp, frame);
+    if (publish_marker_) {
+      publishMarker(points, stamp, frame, resolution);
+    }
+
+    if (log_every_n_frames_ > 0 && frame_count_ % log_every_n_frames_ == 0) {
+      RCLCPP_INFO(
+        get_logger(),
+        "voxel frame=%zu compressed=%zu decoded=%zu occupied=%zu resolution=%.3f origin=(%.2f, %.2f, %.2f)",
+        frame_count_, msg.data().size(), decoded.size(), points.size(),
+        resolution, origin_x, origin_y, origin_z);
+    }
   }
 
   void publishPointCloud(
-    const rclcpp::Time & stamp, const std::string & frame_id,
-    const std::vector<VoxelPoint> & points)
+    const std::vector<std::array<float, 4>> & points,
+    const rclcpp::Time & stamp,
+    const std::string & frame)
   {
     sensor_msgs::msg::PointCloud2 cloud;
     cloud.header.stamp = stamp;
-    cloud.header.frame_id = frame_id;
+    cloud.header.frame_id = frame;
     cloud.height = 1;
     cloud.width = static_cast<uint32_t>(points.size());
     cloud.is_bigendian = false;
     cloud.is_dense = true;
     cloud.point_step = 16;
     cloud.row_step = cloud.point_step * cloud.width;
-    cloud.fields = {
-      makeFloatField("x", 0),
-      makeFloatField("y", 4),
-      makeFloatField("z", 8),
-      makeFloatField("intensity", 12)};
+    addPointField(cloud, "x", 0);
+    addPointField(cloud, "y", 4);
+    addPointField(cloud, "z", 8);
+    addPointField(cloud, "intensity", 12);
     cloud.data.resize(static_cast<std::size_t>(cloud.row_step));
 
     for (std::size_t i = 0; i < points.size(); ++i) {
       const std::size_t base = i * cloud.point_step;
-      std::memcpy(&cloud.data[base + 0], &points[i].x, sizeof(float));
-      std::memcpy(&cloud.data[base + 4], &points[i].y, sizeof(float));
-      std::memcpy(&cloud.data[base + 8], &points[i].z, sizeof(float));
-      std::memcpy(&cloud.data[base + 12], &points[i].intensity, sizeof(float));
+      writeFloat32(cloud.data, base + 0, points[i][0]);
+      writeFloat32(cloud.data, base + 4, points[i][1]);
+      writeFloat32(cloud.data, base + 8, points[i][2]);
+      writeFloat32(cloud.data, base + 12, points[i][3]);
     }
+
     points_pub_->publish(cloud);
   }
 
   void publishMarker(
-    const rclcpp::Time & stamp, const std::string & frame_id,
-    const std::vector<VoxelPoint> & points, double resolution)
+    const std::vector<std::array<float, 4>> & points,
+    const rclcpp::Time & stamp,
+    const std::string & frame,
+    float resolution)
   {
     visualization_msgs::msg::Marker marker;
     marker.header.stamp = stamp;
-    marker.header.frame_id = frame_id;
+    marker.header.frame_id = frame;
     marker.ns = "go2_voxel_map";
     marker.id = 0;
     marker.type = visualization_msgs::msg::Marker::CUBE_LIST;
     marker.action = visualization_msgs::msg::Marker::ADD;
     marker.pose.orientation.w = 1.0;
-    marker.scale.x = resolution * marker_scale_multiplier_;
-    marker.scale.y = resolution * marker_scale_multiplier_;
-    marker.scale.z = resolution * marker_scale_multiplier_;
-    marker.lifetime.sec = static_cast<int32_t>(std::floor(marker_lifetime_sec_));
-    marker.lifetime.nanosec = static_cast<uint32_t>(
-      (marker_lifetime_sec_ - static_cast<double>(marker.lifetime.sec)) * 1e9);
-    marker.points.reserve(points.size());
-    marker.colors.reserve(points.size());
+    marker.scale.x = resolution;
+    marker.scale.y = resolution;
+    marker.scale.z = resolution;
+    marker.color.a = 0.65f;
+    marker.color.r = 1.0f;
+    marker.color.g = 1.0f;
+    marker.color.b = 1.0f;
+    marker.lifetime = rclcpp::Duration::from_seconds(0.3);
 
-    for (const auto & voxel : points) {
-      geometry_msgs::msg::Point point;
-      point.x = voxel.x;
-      point.y = voxel.y;
-      point.z = voxel.z;
-      marker.points.push_back(point);
-      marker.colors.push_back(heightColor(voxel.intensity, marker_alpha_));
+    const std::size_t limit = marker_max_voxels_ > 0 ?
+      std::min<std::size_t>(points.size(), static_cast<std::size_t>(marker_max_voxels_)) :
+      points.size();
+    marker.points.reserve(limit);
+    marker.colors.reserve(limit);
+    for (std::size_t i = 0; i < limit; ++i) {
+      geometry_msgs::msg::Point p;
+      p.x = points[i][0];
+      p.y = points[i][1];
+      p.z = points[i][2];
+      marker.points.push_back(p);
+
+      std_msgs::msg::ColorRGBA color;
+      const float h = points[i][3] / static_cast<float>(std::max(1, kExpectedZ - 1));
+      color.a = 0.65f;
+      color.r = std::min(1.0f, std::max(0.0f, h * 2.0f));
+      color.g = std::min(1.0f, std::max(0.0f, 1.0f - std::fabs(h - 0.5f) * 2.0f));
+      color.b = std::min(1.0f, std::max(0.0f, 1.0f - h * 2.0f));
+      marker.colors.push_back(color);
     }
 
     marker_pub_->publish(marker);
@@ -363,24 +342,28 @@ private:
   std::string voxel_topic_;
   std::string points_topic_;
   std::string marker_topic_;
-  bool publish_points_{true};
+  std::string output_frame_;
+  std::string bit_order_{"lsb"};
   bool publish_marker_{true};
-  std::string bit_order_;
-  int downsample_stride_{1};
-  double marker_alpha_{0.85};
-  double marker_scale_multiplier_{1.0};
-  double marker_lifetime_sec_{0.25};
-  double min_z_{-1000.0};
-  double max_z_{1000.0};
+  int marker_max_voxels_{60000};
+  int log_every_n_frames_{20};
+  std::size_t frame_count_{0};
+
+  unitree::robot::ChannelSubscriberPtr<unitree_go::msg::dds_::VoxelMapCompressed_> voxel_sub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr points_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
-  unitree::robot::ChannelSubscriberPtr<unitree_go::msg::dds_::VoxelMapCompressed_> voxel_sub_;
 };
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<Go2VoxelMapVisualizer>());
+  try {
+    rclcpp::spin(std::make_shared<Go2VoxelMapVisualizer>());
+  } catch (const std::exception & ex) {
+    std::cerr << "go2_voxel_map_visualizer failed: " << ex.what() << std::endl;
+    rclcpp::shutdown();
+    return 1;
+  }
   rclcpp::shutdown();
   return 0;
 }

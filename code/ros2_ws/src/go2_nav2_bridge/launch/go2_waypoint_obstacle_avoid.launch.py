@@ -2,8 +2,12 @@ import ast
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.actions import EmitEvent
 from launch.actions import OpaqueFunction
+from launch.actions import RegisterEventHandler
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
@@ -39,50 +43,63 @@ def _launch_setup(context, *args, **kwargs):
     network_interface = LaunchConfiguration("network_interface")
     start_bridge = LaunchConfiguration("start_bridge")
     start_follower = LaunchConfiguration("start_follower")
-    relative_waypoints = _parse_relative_waypoints(context)
+    relative_waypoints_text = LaunchConfiguration("relative_waypoints").perform(context)
+    _parse_relative_waypoints(context)
     ros2_env = {
         "RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp",
         "ROS_DOMAIN_ID": "10",
         "ROS2_DISABLE_DAEMON": "1",
     }
 
-    return [
-        Node(
-            condition=IfCondition(start_bridge),
-            package="go2_nav2_bridge",
-            executable="go2_nav2_bridge",
-            name="go2_nav2_bridge",
-            output="screen",
-            additional_env={
-                **ros2_env,
-                "GO2_NAV2_BRIDGE_NETWORK_INTERFACE": network_interface,
+    bridge = Node(
+        condition=IfCondition(start_bridge),
+        package="go2_nav2_bridge",
+        executable="go2_nav2_bridge",
+        name="go2_nav2_bridge",
+        output="screen",
+        additional_env={
+            **ros2_env,
+            "GO2_NAV2_BRIDGE_NETWORK_INTERFACE": network_interface,
+        },
+        parameters=[
+            params_file,
+            {
+                "network_interface": network_interface,
+                "motion_client": "obstacles_avoid",
+                "obstacle_avoid_switch_on_start": True,
+                "obstacle_avoid_remote_api_on_start": True,
+                "publish_point_cloud": False,
+                "require_fresh_point_cloud_for_motion": False,
+                "log_point_cloud_roi": False,
             },
-            parameters=[
-                params_file,
-                {
-                    "network_interface": network_interface,
-                    "motion_client": "obstacles_avoid",
-                    "obstacle_avoid_switch_on_start": True,
-                    "obstacle_avoid_remote_api_on_start": True,
-                    "publish_point_cloud": False,
-                    "require_fresh_point_cloud_for_motion": False,
-                    "log_point_cloud_roi": False,
-                },
-            ],
-        ),
-        Node(
-            condition=IfCondition(start_follower),
-            package="go2_nav2_bridge",
-            executable="go2_waypoint_follower",
-            name="go2_waypoint_follower",
-            output="screen",
-            additional_env=ros2_env,
-            parameters=[
-                params_file,
-                {
-                    "relative_waypoints": relative_waypoints,
-                },
-            ],
+        ],
+    )
+
+    follower = Node(
+        condition=IfCondition(start_follower),
+        package="go2_nav2_bridge",
+        executable="go2_waypoint_follower",
+        name="go2_waypoint_follower",
+        output="screen",
+        additional_env=ros2_env,
+        parameters=[
+            params_file,
+            {
+                "relative_waypoints_text": relative_waypoints_text,
+            },
+        ],
+    )
+
+    return [
+        bridge,
+        follower,
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=follower,
+                on_exit=[
+                    EmitEvent(event=Shutdown(reason="go2_waypoint_follower finished")),
+                ],
+            )
         ),
     ]
 

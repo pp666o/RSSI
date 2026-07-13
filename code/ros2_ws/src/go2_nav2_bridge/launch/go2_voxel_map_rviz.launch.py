@@ -4,7 +4,6 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -17,17 +16,19 @@ def generate_launch_description():
 
     network_interface = LaunchConfiguration("network_interface")
     voxel_topic = LaunchConfiguration("voxel_topic")
+    points_topic = LaunchConfiguration("points_topic")
+    marker_topic = LaunchConfiguration("marker_topic")
+    output_frame = LaunchConfiguration("output_frame")
     bit_order = LaunchConfiguration("bit_order")
+    start_visualizer = LaunchConfiguration("start_visualizer")
     start_rviz = LaunchConfiguration("start_rviz")
     rviz_config = LaunchConfiguration("rviz_config")
-    publish_marker = LaunchConfiguration("publish_marker")
-    publish_points = LaunchConfiguration("publish_points")
 
     return LaunchDescription([
         DeclareLaunchArgument(
             "network_interface",
             default_value="enp5s0",
-            description="Network interface used by Unitree SDK2 DDS.",
+            description="Network interface connected to the Go2 DDS network.",
         ),
         DeclareLaunchArgument(
             "voxel_topic",
@@ -35,19 +36,29 @@ def generate_launch_description():
             description="Unitree DDS VoxelMapCompressed topic.",
         ),
         DeclareLaunchArgument(
+            "points_topic",
+            default_value="/go2/voxel_map_points",
+            description="Decoded PointCloud2 topic for occupied voxels.",
+        ),
+        DeclareLaunchArgument(
+            "marker_topic",
+            default_value="/go2/voxel_map_marker",
+            description="Decoded Marker CUBE_LIST topic for occupied voxels.",
+        ),
+        DeclareLaunchArgument(
+            "output_frame",
+            default_value="odom",
+            description="Frame used for decoded voxel map visualization.",
+        ),
+        DeclareLaunchArgument(
             "bit_order",
             default_value="lsb",
-            description="Bit order used to expand the decoded 1-bit occupancy bitmap: lsb or msb.",
+            description="Bit order used to unpack the 1-bit voxel bitmap: lsb or msb.",
         ),
         DeclareLaunchArgument(
-            "publish_marker",
+            "start_visualizer",
             default_value="true",
-            description="Publish /go2/voxel_map_marker as CUBE_LIST.",
-        ),
-        DeclareLaunchArgument(
-            "publish_points",
-            default_value="true",
-            description="Publish /go2/voxel_map_points as PointCloud2.",
+            description="Start the Unitree voxel decoder and ROS publishers.",
         ),
         DeclareLaunchArgument(
             "start_rviz",
@@ -60,6 +71,7 @@ def generate_launch_description():
             description="RViz config used for live Go2 voxel map visualization.",
         ),
         Node(
+            condition=IfCondition(start_visualizer),
             package="go2_nav2_bridge",
             executable="go2_voxel_map_visualizer",
             name="go2_voxel_map_visualizer",
@@ -67,9 +79,10 @@ def generate_launch_description():
             parameters=[{
                 "network_interface": network_interface,
                 "voxel_topic": voxel_topic,
+                "points_topic": points_topic,
+                "marker_topic": marker_topic,
+                "output_frame": output_frame,
                 "bit_order": bit_order,
-                "publish_marker": ParameterValue(publish_marker, value_type=bool),
-                "publish_points": ParameterValue(publish_points, value_type=bool),
             }],
         ),
         Node(

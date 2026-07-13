@@ -203,7 +203,7 @@ public:
     disable_obstacle_avoid_on_shutdown_ =
       declare_parameter<bool>("disable_obstacle_avoid_on_shutdown", false);
     disable_remote_api_on_shutdown_ =
-      declare_parameter<bool>("disable_remote_api_on_shutdown", true);
+      declare_parameter<bool>("disable_remote_api_on_shutdown", false);
     shutdown_stop_repeats_ =
       static_cast<int>(clamp(declare_parameter<int>("shutdown_stop_repeats", 8), 1, 30));
     shutdown_stop_period_ms_ =
@@ -234,9 +234,12 @@ public:
 
     initUnitreeChannelFactoryOnce(network_interface_);
 
-    sport_client_ = std::make_unique<unitree::robot::go2::SportClient>();
-    sport_client_->SetTimeout(2.0f);
-    sport_client_->Init();
+    const bool motion_disabled = motion_client_ == "none";
+    if (!motion_disabled) {
+      sport_client_ = std::make_unique<unitree::robot::go2::SportClient>();
+      sport_client_->SetTimeout(2.0f);
+      sport_client_->Init();
+    }
 
     if (motion_client_ == "obstacles_avoid") {
       obstacle_client_ = std::make_unique<unitree::robot::go2::ObstaclesAvoidClient>();
@@ -250,19 +253,35 @@ public:
         const int32_t ret = obstacle_client_->SwitchSet(true);
         RCLCPP_INFO(get_logger(), "ObstaclesAvoid SwitchSet(true) ret=%d", ret);
       }
-    } else if (motion_client_ != "sport") {
-      throw std::runtime_error("motion_client must be 'sport' or 'obstacles_avoid'.");
+    } else if (motion_client_ != "sport" && motion_client_ != "none") {
+      throw std::runtime_error("motion_client must be 'sport', 'obstacles_avoid', or 'none'.");
     }
 
-    if (stand_on_start_) {
+    if (motion_disabled) {
+      if (stand_on_start_ || classic_walk_on_start_ || speed_level_on_start_ >= 0 ||
+        obstacle_avoid_switch_on_start_ || obstacle_avoid_remote_api_on_start_)
+      {
+        RCLCPP_WARN(
+          get_logger(),
+          "motion_client=none: ignoring stand/classic_walk/speed/obstacle-avoid startup actions.");
+      }
+      stand_on_start_ = false;
+      classic_walk_on_start_ = false;
+      speed_level_on_start_ = -1;
+      obstacle_avoid_switch_on_start_ = false;
+      obstacle_avoid_remote_api_on_start_ = false;
+      stop_on_shutdown_ = false;
+    }
+
+    if (sport_client_ && stand_on_start_) {
       const int32_t ret = sport_client_->BalanceStand();
       RCLCPP_INFO(get_logger(), "BalanceStand ret=%d", ret);
     }
-    if (speed_level_on_start_ >= 0) {
+    if (sport_client_ && speed_level_on_start_ >= 0) {
       const int32_t ret = sport_client_->SpeedLevel(speed_level_on_start_);
       RCLCPP_INFO(get_logger(), "SpeedLevel(%d) ret=%d", speed_level_on_start_, ret);
     }
-    if (classic_walk_on_start_) {
+    if (sport_client_ && classic_walk_on_start_) {
       const int32_t ret = sport_client_->ClassicWalk(true);
       RCLCPP_INFO(get_logger(), "ClassicWalk(true) ret=%d", ret);
     }
@@ -274,14 +293,16 @@ public:
       ros_point_cloud_topic_, rclcpp::SensorDataQoS());
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
-    if (cmd_vel_stamped_) {
-      cmd_vel_stamped_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
-        cmd_vel_topic_, 10,
-        std::bind(&Go2Nav2Bridge::onTwistStamped, this, std::placeholders::_1));
-    } else {
-      cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
-        cmd_vel_topic_, 10,
-        std::bind(&Go2Nav2Bridge::onTwist, this, std::placeholders::_1));
+    if (!motion_disabled) {
+      if (cmd_vel_stamped_) {
+        cmd_vel_stamped_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
+          cmd_vel_topic_, 10,
+          std::bind(&Go2Nav2Bridge::onTwistStamped, this, std::placeholders::_1));
+      } else {
+        cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+          cmd_vel_topic_, 10,
+          std::bind(&Go2Nav2Bridge::onTwist, this, std::placeholders::_1));
+      }
     }
 
     sport_state_sub_.reset(

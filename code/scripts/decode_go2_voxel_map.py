@@ -216,6 +216,7 @@ def write_xyz(path: Path, occupied: Iterable[tuple[int, int, int]], origin: list
 
 
 def write_ply(path: Path, occupied: list[tuple[int, int, int]], origin: list[float], resolution: float) -> None:
+    max_z = max((p[2] for p in occupied), default=1)
     with path.open("w", encoding="utf-8") as handle:
         handle.write("ply\nformat ascii 1.0\n")
         handle.write(f"element vertex {len(occupied)}\n")
@@ -226,7 +227,7 @@ def write_ply(path: Path, occupied: list[tuple[int, int, int]], origin: list[flo
             x = origin[0] + (ix + 0.5) * resolution
             y = origin[1] + (iy + 0.5) * resolution
             z = origin[2] + (iz + 0.5) * resolution
-            hue = iz / max(1, max(p[2] for p in occupied))
+            hue = iz / max(1, max_z)
             red = int(255 * min(1.0, max(0.0, hue * 2.0)))
             green = int(255 * min(1.0, max(0.0, 1.0 - abs(hue - 0.5) * 2.0)))
             blue = int(255 * min(1.0, max(0.0, 1.0 - hue * 2.0)))
