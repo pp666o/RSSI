@@ -25,10 +25,10 @@ capture_dir="$(realpath "$1")"
 route_name="${2:-$(basename "$capture_dir")}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
+offline_dir="${OUTPUT_DIR:-$capture_dir/offline_map}"
 
 "$project_root/scripts/go2_build_offline_voxel_map.sh" "$capture_dir"
 
-offline_dir="$capture_dir/offline_map"
 src="$offline_dir/waypoints_relative_text.txt"
 if [[ ! -s "$src" ]]; then
   echo "Route file not generated or empty: $src" >&2

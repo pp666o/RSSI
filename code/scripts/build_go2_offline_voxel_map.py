@@ -148,10 +148,10 @@ def build_trajectory(records: list[dict], voxel_records: list[dict], min_distanc
         distance = math.hypot(point["x"] - prev["x"], point["y"] - prev["y"])
         if distance >= min_distance:
             downsampled.append(point)
-    if len(downsampled) == 1 and raw_points:
+    if downsampled and raw_points:
         last = raw_points[-1]
-        if last is not downsampled[0]:
-            distance = math.hypot(last["x"] - downsampled[0]["x"], last["y"] - downsampled[0]["y"])
+        if last is not downsampled[-1]:
+            distance = math.hypot(last["x"] - downsampled[-1]["x"], last["y"] - downsampled[-1]["y"])
             if distance > 1e-6:
                 downsampled.append(last)
 
