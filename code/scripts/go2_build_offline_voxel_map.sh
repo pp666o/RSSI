@@ -23,7 +23,7 @@ Environment:
   BIT_ORDER            lsb or msb. Defaults to lsb.
   MAX_FRAMES           0 means all frames. Defaults to 0.
   FRAME_STEP           Decode every Nth frame. Defaults to 1.
-  MIN_PATH_DISTANCE_M  Path downsample distance. Defaults to 0.15.
+  MIN_PATH_DISTANCE_M  Path downsample distance. Defaults to 0.50.
 EOF
 }
 
@@ -48,7 +48,7 @@ output_dir="${OUTPUT_DIR:-$capture_dir/offline_map}"
 bit_order="${BIT_ORDER:-lsb}"
 max_frames="${MAX_FRAMES:-0}"
 frame_step="${FRAME_STEP:-1}"
-min_path_distance_m="${MIN_PATH_DISTANCE_M:-0.15}"
+min_path_distance_m="${MIN_PATH_DISTANCE_M:-0.50}"
 
 exec "$script_dir/build_go2_offline_voxel_map.py" \
   "$capture_dir" \

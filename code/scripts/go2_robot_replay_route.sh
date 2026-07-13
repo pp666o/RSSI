@@ -15,6 +15,7 @@ Environment:
   MAX_VX_MPS         Defaults to 0.30.
   MAX_VY_MPS         Defaults to 0.08.
   MAX_WZ_RADPS       Defaults to 0.45.
+  YAW_TOLERANCE_RAD  Final heading tolerance. Defaults to 0.35.
   TIMEOUT_SEC        Defaults to 90.
   MOTION_CLIENT      obstacles_avoid or sport. Defaults to obstacles_avoid.
   CONTROL_HZ         Defaults to 20.
@@ -48,6 +49,7 @@ echo "  route_file:      $route_file"
 echo "  output_csv:      $output_csv"
 echo "  iface:           ${IFACE:-eth0}"
 echo "  xy_tolerance_m:  ${XY_TOLERANCE_M:-0.25}"
+echo "  yaw_tolerance:   ${YAW_TOLERANCE_RAD:-0.35}"
 echo "  motion_client:   ${MOTION_CLIENT:-obstacles_avoid}"
 echo
 
@@ -61,4 +63,5 @@ exec "$exe" \
   "${MAX_WZ_RADPS:-0.45}" \
   "${TIMEOUT_SEC:-90}" \
   "${MOTION_CLIENT:-obstacles_avoid}" \
-  "${CONTROL_HZ:-20}"
+  "${CONTROL_HZ:-20}" \
+  "${YAW_TOLERANCE_RAD:-0.35}"

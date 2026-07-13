@@ -55,6 +55,7 @@ required_paths=(
   "bt_migrate_pack/test_rssi"
   "go2_sdk/go2_imu_logger.cpp"
   "go2_sdk/go2_straight_line_runner.cpp"
+  "go2_sdk/go2_route_replay.cpp"
 )
 
 cd "$project_root"
@@ -80,6 +81,7 @@ if [[ ! -f "$cmake_file" ]]; then
 fi
 cp "$REMOTE_DIR/go2_sdk/go2_imu_logger.cpp" "$REMOTE_DIR/unitree_sdk2/example/go2/go2_imu_logger.cpp"
 cp "$REMOTE_DIR/go2_sdk/go2_straight_line_runner.cpp" "$REMOTE_DIR/unitree_sdk2/example/go2/go2_straight_line_runner.cpp"
+cp "$REMOTE_DIR/go2_sdk/go2_route_replay.cpp" "$REMOTE_DIR/unitree_sdk2/example/go2/go2_route_replay.cpp"
 if ! grep -q '^add_executable(go2_imu_logger ' "$cmake_file"; then
   awk '
     { print }
@@ -90,6 +92,9 @@ if ! grep -q '^add_executable(go2_imu_logger ' "$cmake_file"; then
       print ""
       print "add_executable(go2_straight_line_runner go2_straight_line_runner.cpp)"
       print "target_link_libraries(go2_straight_line_runner unitree_sdk2)"
+      print ""
+      print "add_executable(go2_route_replay go2_route_replay.cpp)"
+      print "target_link_libraries(go2_route_replay unitree_sdk2)"
     }
   ' "$cmake_file" > "$cmake_file.tmp"
   mv "$cmake_file.tmp" "$cmake_file"
@@ -104,6 +109,17 @@ elif ! grep -q '^add_executable(go2_straight_line_runner ' "$cmake_file"; then
   ' "$cmake_file" > "$cmake_file.tmp"
   mv "$cmake_file.tmp" "$cmake_file"
 fi
+if ! grep -q '^add_executable(go2_route_replay ' "$cmake_file"; then
+  awk '
+    { print }
+    /^target_link_libraries\(go2_straight_line_runner unitree_sdk2\)/ {
+      print ""
+      print "add_executable(go2_route_replay go2_route_replay.cpp)"
+      print "target_link_libraries(go2_route_replay unitree_sdk2)"
+    }
+  ' "$cmake_file" > "$cmake_file.tmp"
+  mv "$cmake_file.tmp" "$cmake_file"
+fi
 chmod +x "$REMOTE_DIR"/scripts/*.sh "$REMOTE_DIR"/bt_migrate_pack/*.sh "$REMOTE_DIR"/bt_migrate_pack/test_rssi 2>/dev/null || true
 REMOTE_PATCH
 
@@ -114,7 +130,7 @@ Synced Phase A files to $remote:$remote_dir
 Next commands on the robot:
   cd $remote_dir
   cmake -S unitree_sdk2 -B unitree_sdk2/build_go2
-  cmake --build unitree_sdk2/build_go2 --target go2_imu_logger go2_straight_line_runner -j"\$(nproc)"
+  cmake --build unitree_sdk2/build_go2 --target go2_imu_logger go2_straight_line_runner go2_route_replay -j"\$(nproc)"
   scripts/build_rssi_logger.sh
   RUN_DIR="\$HOME/go2_rssi_runs/straight_test" scripts/go2_collect_straight_line_phase_a.sh eth0 0.5 0.05 1.0 0.5
 EOF

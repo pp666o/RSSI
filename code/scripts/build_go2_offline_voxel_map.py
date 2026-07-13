@@ -359,7 +359,7 @@ def main() -> int:
     parser.add_argument("--bit-order", choices=["lsb", "msb"], default="lsb")
     parser.add_argument("--max-frames", type=int, default=0, help="0 means all frames")
     parser.add_argument("--frame-step", type=int, default=1)
-    parser.add_argument("--min-path-distance", type=float, default=0.15)
+    parser.add_argument("--min-path-distance", type=float, default=0.50)
     parser.add_argument("--max-svg-cells", type=int, default=100000)
     args = parser.parse_args()
 
