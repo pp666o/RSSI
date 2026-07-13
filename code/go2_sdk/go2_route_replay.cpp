@@ -267,8 +267,14 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
-        sport_client_.BalanceStand();
+        const int32_t stand_ret = sport_client_.BalanceStand();
+        std::cout << "BalanceStand ret=" << stand_ret << std::endl;
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        const int32_t speed_ret = sport_client_.SpeedLevel(1);
+        std::cout << "SpeedLevel(1) ret=" << speed_ret << std::endl;
+        const int32_t classic_ret = sport_client_.ClassicWalk(true);
+        std::cout << "ClassicWalk(true) ret=" << classic_ret << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
         const RobotState origin = GetState();
         BuildWorldRoute(origin);
