@@ -44,6 +44,23 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
 output_csv="${2:-$HOME/go2_route_replays/replay_${timestamp}.csv}"
 mkdir -p "$(dirname "$output_csv")"
 
+sdk_arch="$(uname -m)"
+sdk_library_path=""
+for lib_dir in \
+  "$project_root/unitree_sdk2/thirdparty/lib/$sdk_arch" \
+  "$project_root/unitree_sdk2/lib/$sdk_arch"; do
+  if [[ -d "$lib_dir" ]]; then
+    if [[ -z "$sdk_library_path" ]]; then
+      sdk_library_path="$lib_dir"
+    else
+      sdk_library_path="$sdk_library_path:$lib_dir"
+    fi
+  fi
+done
+if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
+  sdk_library_path="${sdk_library_path:+$sdk_library_path:}${LD_LIBRARY_PATH}"
+fi
+
 echo "Go2 route replay:"
 echo "  route_file:      $route_file"
 echo "  output_csv:      $output_csv"
@@ -53,7 +70,7 @@ echo "  yaw_tolerance:   ${YAW_TOLERANCE_RAD:-0.35}"
 echo "  motion_client:   ${MOTION_CLIENT:-obstacles_avoid}"
 echo
 
-exec "$exe" \
+exec env LD_LIBRARY_PATH="$sdk_library_path" "$exe" \
   "${IFACE:-eth0}" \
   "$route_file" \
   "$output_csv" \

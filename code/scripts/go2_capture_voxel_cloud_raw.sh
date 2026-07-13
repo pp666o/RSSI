@@ -74,6 +74,23 @@ fi
 
 mkdir -p "$output_dir"
 
+sdk_arch="$(uname -m)"
+sdk_library_path=""
+for lib_dir in \
+  "$sdk_dir/thirdparty/lib/$sdk_arch" \
+  "$sdk_dir/lib/$sdk_arch"; do
+  if [[ -d "$lib_dir" ]]; then
+    if [[ -z "$sdk_library_path" ]]; then
+      sdk_library_path="$lib_dir"
+    else
+      sdk_library_path="$sdk_library_path:$lib_dir"
+    fi
+  fi
+done
+if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
+  sdk_library_path="${sdk_library_path:+$sdk_library_path:}${LD_LIBRARY_PATH}"
+fi
+
 echo "Capturing raw voxel/cloud frames:"
 echo "  exe:              $exe"
 echo "  output_dir:       $output_dir"
@@ -87,7 +104,7 @@ echo "  max_voxel_frames: $max_voxel_frames"
 echo "  max_cloud_frames: $max_cloud_frames"
 echo
 
-exec "$exe" \
+exec env LD_LIBRARY_PATH="$sdk_library_path" "$exe" \
   "$iface" \
   "$output_dir" \
   "$duration_sec" \
